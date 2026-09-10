@@ -9,6 +9,7 @@ from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
 from ..core import MIN_SURFACE_CUT_THICKNESS_MM, create_surface_cut, mm_to_units
+from ..core.cut_strokes import project_straight_segment, smooth_surface_stroke
 from ..core.drawn_surface import interpolate_cutting_surface, simplify_closed_loop
 from ._operator import OperatorReturn
 
@@ -70,6 +71,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
     _selected: tuple[bpy.types.Object, ...]
     _loops: list[list[Vector]]
     _stroke: list[Vector]
+    _history: list[tuple[list[list[Vector]], list[Vector]]]
     _drawing: bool
     _ready: bool
     _last_mouse: tuple[float, float] | None
@@ -94,7 +96,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
             message = (
                 "Preview: Enter = cut | Backspace = return to drawing | Esc = cancel"
                 if self._ready
-                else f"{len(self._loops)} loops | Draw: LMB | Orbit: MMB | Close: C | Preview: Space | Undo: Backspace | Cancel: Esc"
+                else f"{len(self._loops)} loops | Draw: LMB | Line: Ctrl-click | Smooth: S | Undo: Ctrl-Z | Close: C | Preview: Space | Esc: cancel"
             )
         self._area.header_text_set(message)
         self._area.tag_redraw()
@@ -158,6 +160,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         self._preview.show_in_front = True
         self._preview.hide_render = True
         self._preview.select_set(True)
+        self._history = []
         self._loops = []
         self._stroke = []
         self._drawing = False
@@ -224,6 +227,49 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         self._header()
         return True
 
+    def _remember(self) -> None:
+        self._history.append(([loop[:] for loop in self._loops], self._stroke[:]))
+
+    def _straight_line(self, mouse: Vector) -> None:
+        if not self._stroke:
+            self._remember()
+            self._append_point(mouse)
+            return
+        start = view3d_utils.location_3d_to_region_2d(
+            self._region, self._view, self._stroke[-1]
+        )
+        if start is None:
+            self._header("Orbit until the stroke endpoint is visible")
+            return
+        try:
+            points = project_straight_segment(
+                start, mouse, self._point, self._size * 0.04
+            )
+            if (points[0] - self._stroke[-1]).length > self._size * 0.0005:
+                raise ValueError("Orbit until the stroke endpoint is visible")
+        except ValueError as error:
+            self._header(str(error))
+            return
+        self._remember()
+        for point in points[1:]:
+            if (point - self._stroke[-1]).length >= self._size * 0.0005:
+                self._stroke.append(point)
+        self._header()
+
+    def _smooth(self) -> None:
+        stroke = self._stroke or (self._loops[-1] if self._loops else [])
+        if len(stroke) < 3:
+            self._header("Draw a line before smoothing it")
+            return
+        smoothed = smooth_surface_stroke(stroke, self._bvh, closed=not self._stroke)
+        self._remember()
+        if self._stroke:
+            self._stroke = smoothed
+        else:
+            self._loops[-1] = smoothed
+        self._show_strokes()
+        self._header()
+
     def _close_loop(self) -> None:
         if len(self._stroke) < 3:
             self._header("Draw a loop before closing it")
@@ -231,6 +277,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         if (self._stroke[-1] - self._stroke[0]).length > self._size * 0.025:
             self._header("Continue drawing back to the start before closing the loop")
             return
+        self._remember()
         # The endpoint near the start is redundant and can create a tiny CDT
         # edge. Keep the first point as the exact closing point.
         if (
@@ -329,8 +376,10 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
                 self._ready = False
                 self._preview.vertex_groups.clear()
             elif self._stroke:
+                self._remember()
                 self._stroke = []
             elif self._loops:
+                self._remember()
                 self._stroke = self._loops.pop()
             self._show_strokes()
             self._header()
@@ -351,7 +400,18 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
                 )
                 return {"FINISHED"}
             return {"RUNNING_MODAL"}
-        if event.type == "SPACE" and event.value == "PRESS":
+        if event.type == "Z" and event.ctrl and event.value == "PRESS":
+            self._drawing = False
+            self._last_mouse = None
+            if self._history:
+                self._loops, self._stroke = self._history.pop()
+                self._show_strokes()
+                self._header()
+        elif event.type == "S" and event.value == "PRESS":
+            self._drawing = False
+            self._last_mouse = None
+            self._smooth()
+        elif event.type == "SPACE" and event.value == "PRESS":
             self._drawing = False
             self._build_preview()
         elif event.type == "C" and event.value == "PRESS":
@@ -362,6 +422,13 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
                 (event.mouse_x - self._region.x, event.mouse_y - self._region.y)
             )
             if event.value == "PRESS":
+                if event.ctrl:
+                    self._drawing = False
+                    self._last_mouse = None
+                    self._straight_line(mouse)
+                    self._show_strokes()
+                    return {"RUNNING_MODAL"}
+                self._remember()
                 self._drawing = self._append_point(mouse)
                 self._last_mouse = (mouse.x, mouse.y) if self._drawing else None
                 self._show_strokes()

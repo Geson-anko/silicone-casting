@@ -71,7 +71,7 @@ def _steps():
                 "RUNNING_MODAL"
             }
 
-    def event(kind, value="PRESS", point=None):
+    def event(kind, value="PRESS", point=None, *, ctrl=False):
         pixel = (
             location_3d_to_region_2d(region, view, point)
             if point is not None
@@ -79,6 +79,7 @@ def _steps():
         )
         assert pixel is not None
         window.event_simulate(
+            ctrl=ctrl,
             type=kind,
             value=value,
             x=round(region.x + pixel.x),
@@ -115,6 +116,35 @@ def _steps():
     assert set(bpy.data.meshes) == meshes
     assert len(sphere.modifiers) == 0
     assert set(bpy.context.selected_objects) == {sphere}
+
+    # Straight clicks follow the visible surface; smoothing is locally undoable.
+    invoke()
+    yield
+    for point in [(-0.01, -0.008, 0), (0.01, -0.008, 0), (0.01, 0.008, 0)]:
+        event("LEFTMOUSE", point=Vector(point), ctrl=True)
+        yield
+        event("LEFTMOUSE", "RELEASE", Vector(point), ctrl=True)
+        yield
+    preview = next(obj for obj in bpy.data.objects if obj not in objects)
+    before = [v.co.copy() for v in preview.data.vertices]
+    assert len(before) > 10
+    assert abs(before[0].x + 0.01) < 0.0005
+    assert abs(before[-1].y - 0.008) < 0.0005
+    assert all(p.z > 0.01 for p in before)
+    event("S")
+    yield
+    after = [v.co.copy() for v in preview.data.vertices]
+    assert after[0] == before[0] and after[-1] == before[-1]
+    assert any((a - b).length > 1e-6 for a, b in zip(before, after))
+    event("Z", ctrl=True)
+    yield
+    assert [v.co.copy() for v in preview.data.vertices] == before
+    event("Z", ctrl=True)
+    yield
+    assert len(preview.data.vertices) < len(before)
+    event("ESC")
+    yield
+    assert set(bpy.data.objects) == objects
 
     invoke()
     yield
