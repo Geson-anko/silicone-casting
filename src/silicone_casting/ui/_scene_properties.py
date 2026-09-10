@@ -12,7 +12,7 @@ from bpy.props import (
     PointerProperty,
 )
 
-from ..core import MIN_SURFACE_CUT_THICKNESS_MM, MIN_THICKNESS_MM
+from ..core import MIN_SURFACE_CUT_THICKNESS_MM, MIN_THICKNESS_MM, mm_to_units
 from ._color_properties import SiliconeCastingColorProfile
 from ._mixture_properties import (
     MixtureSelectionState,
@@ -124,6 +124,29 @@ class SiliconeCastingProperties(bpy.types.PropertyGroup):
         default=0.1,
         min=0.0,
         precision=3,
+    )
+
+    def _get_surface_cut_margin(self) -> float:
+        scene = cast(bpy.types.Scene, self.id_data)
+        return mm_to_units(
+            cast(float, getattr(self, "surface_cut_margin_mm")),
+            scene.unit_settings.scale_length,
+        )
+
+    def _set_surface_cut_margin(self, value: float) -> None:
+        scene = cast(bpy.types.Scene, self.id_data)
+        self.surface_cut_margin_mm = value * scene.unit_settings.scale_length * 1000
+
+    # Keep saved millimetres compatible while the UI accepts scene distance units.
+    surface_cut_margin: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Boundary Extension",
+        description="Extend the cutting surface past its boundary; updates while drawing",
+        subtype="DISTANCE",
+        unit="LENGTH",
+        min=0.0,
+        precision=4,
+        get=_get_surface_cut_margin,
+        set=_set_surface_cut_margin,
     )
 
     # Deliberately no ``unit="VOLUME"``, for the same reason as above: it
