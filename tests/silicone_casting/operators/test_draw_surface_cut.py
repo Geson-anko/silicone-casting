@@ -51,6 +51,7 @@ def test_edit_surface_selects_only_interior_without_applying_the_cut(
     ]
     mesh, boundary, interior = interpolate_cutting_surface([loop], margin=0.05)
     surface = make_object(mesh)
+    surface.display_type = "WIRE"
     surface.vertex_groups.new(name="Cut Boundary").add(boundary, 1.0, "REPLACE")
     surface.vertex_groups.new(name="Cut Interior").add(interior, 1.0, "REPLACE")
     original = active_cube.data
@@ -61,6 +62,7 @@ def test_edit_surface_selects_only_interior_without_applying_the_cut(
         assert bpy.ops.silicone_casting.edit_cutting_surface() == {"FINISHED"}
         assert bpy.context.mode == "EDIT_MESH"
         assert bpy.context.view_layer.objects.active == surface
+        assert surface.display_type == "SOLID"
         bpy.ops.object.mode_set(mode="OBJECT")
         assert {vertex.index for vertex in mesh.vertices if vertex.select} == set(
             interior

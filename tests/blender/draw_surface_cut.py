@@ -153,6 +153,7 @@ def _steps():
     yield
     preview = next(obj for obj in bpy.data.objects if obj not in objects)
     assert preview.data.polygons
+    assert preview.display_type == "SOLID"
     assert (
         sum(len(face.vertices) == 4 for face in preview.data.polygons)
         > len(preview.data.polygons) / 2
@@ -162,6 +163,7 @@ def _steps():
     event("RET")
     yield
     assert len(sphere.modifiers) == 1
+    assert preview.display_type == "SOLID"
     _assert_split(sphere)
     with bpy.context.temp_override(window=window, area=area, region=region):
         assert bpy.ops.silicone_casting.edit_cutting_surface() == {"FINISHED"}
