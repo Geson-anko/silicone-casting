@@ -150,6 +150,7 @@ def check_scene_properties() -> None:
         "boolean_operand",
         "boolean_solver",
         "surface_cut_thickness_mm",
+        "surface_cut_margin_mm",
         "mixture_use_shared_density",
         "mixture_density_a_g_per_ml",
         "mixture_density_b_g_per_ml",

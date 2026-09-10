@@ -115,6 +115,17 @@ class SiliconeCastingProperties(bpy.types.PropertyGroup):
         precision=3,
     )
 
+    surface_cut_margin_mm: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Boundary Extension (mm)",
+        description=(
+            "Extend the drawn cutting surface outward past its boundary by this "
+            "many millimetres; 0 disables extension. Used when drawing a new surface"
+        ),
+        default=0.1,
+        min=0.0,
+        precision=3,
+    )
+
     # Deliberately no ``unit="VOLUME"``, for the same reason as above: it
     # would make Blender render the value in the scene's unit settings, while
     # this add-on always reports volumes in millilitres.

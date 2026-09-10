@@ -44,6 +44,30 @@ def _assert_split(target):
         evaluated.to_mesh_clear()
 
 
+def _assert_extension(surface, distance):
+    mesh = surface.data
+    boundary_group = surface.vertex_groups["Cut Boundary"].index
+    boundary = {
+        vertex.index
+        for vertex in mesh.vertices
+        if any(group.group == boundary_group for group in vertex.groups)
+    }
+    collar = {vertex.index for vertex in mesh.vertices if not vertex.groups}
+    if distance == 0:
+        assert not collar
+        return
+    extensions = [
+        edge
+        for edge in mesh.edges
+        if len(set(edge.vertices) & boundary) == 1
+        and len(set(edge.vertices) & collar) == 1
+    ]
+    assert len(extensions) == len(boundary)
+    for edge in extensions:
+        a, b = (mesh.vertices[i].co for i in edge.vertices)
+        assert abs((a - b).length - distance) < 1e-7
+
+
 def _steps():
     assert bpy.app.use_event_simulate, "Start Blender with --enable-event-simulate"
     window = bpy.context.window
@@ -63,6 +87,7 @@ def _steps():
     area.spaces.active.clip_start = 0.00001
     area.tag_redraw()
     bpy.context.scene.silicone_casting.surface_cut_thickness_mm = 0.001
+    bpy.context.scene.unit_settings.scale_length = 1.0
     yield
 
     def invoke():
@@ -146,6 +171,20 @@ def _steps():
     yield
     assert set(bpy.data.objects) == objects
 
+    # Zero means no collar, without an automatic thickness/size minimum.
+    bpy.context.scene.silicone_casting.surface_cut_margin_mm = 0
+    invoke()
+    yield
+    yield from stroke(0.014, 0.009)
+    event("SPACE")
+    yield
+    preview = next(obj for obj in bpy.data.objects if obj not in objects)
+    assert preview.data.polygons
+    _assert_extension(preview, 0)
+    event("ESC")
+    yield
+
+    bpy.context.scene.silicone_casting.surface_cut_margin_mm = 0.2
     invoke()
     yield
     yield from stroke(0.014, 0.009)
@@ -154,6 +193,7 @@ def _steps():
     preview = next(obj for obj in bpy.data.objects if obj not in objects)
     assert preview.data.polygons
     assert preview.display_type == "SOLID"
+    _assert_extension(preview, 0.0002)
     assert (
         sum(len(face.vertices) == 4 for face in preview.data.polygons)
         > len(preview.data.polygons) / 2
@@ -196,6 +236,9 @@ def _steps():
     area.tag_redraw()
     yield
     objects = set(bpy.data.objects)
+    # 0.03 mm at 0.1 metres/unit must extend by 0.0003 Blender units.
+    bpy.context.scene.unit_settings.scale_length = 0.1
+    bpy.context.scene.silicone_casting.surface_cut_margin_mm = 0.03
     invoke()
     yield
     yield from stroke(0.038, 0.038)
@@ -204,6 +247,7 @@ def _steps():
     yield
     preview = next(obj for obj in bpy.data.objects if obj not in objects)
     assert preview.data.polygons
+    _assert_extension(preview, 0.0003)
     assert (
         sum(len(face.vertices) == 4 for face in preview.data.polygons)
         > len(preview.data.polygons) / 2

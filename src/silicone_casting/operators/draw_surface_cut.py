@@ -77,6 +77,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
     _last_mouse: tuple[float, float] | None
     _size: float
     _thickness: float
+    _margin: float
     _minimum: float
 
     @classmethod
@@ -148,6 +149,9 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         props = context.scene.silicone_casting
         self._thickness = mm_to_units(
             props.surface_cut_thickness_mm, context.scene.unit_settings.scale_length
+        )
+        self._margin = mm_to_units(
+            props.surface_cut_margin_mm, context.scene.unit_settings.scale_length
         )
         self._minimum = mm_to_units(
             MIN_SURFACE_CUT_THICKNESS_MM, context.scene.unit_settings.scale_length
@@ -301,7 +305,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
                     simplify_closed_loop(loop, self._size * 0.0005)
                     for loop in self._loops
                 ],
-                margin=max(self._thickness * 2, self._size * 0.002),
+                margin=self._margin,
             )
         except ValueError as error:
             self._header(str(error))
