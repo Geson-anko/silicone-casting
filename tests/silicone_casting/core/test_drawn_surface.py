@@ -243,3 +243,36 @@ def test_two_drawn_loops_split_a_hollow_mold_into_two_watertight_parts(
     finally:
         target.modifiers.remove(modifier)
         bpy.data.node_groups.remove(group)
+
+
+@pytest.mark.parametrize("holes", [False, True])
+def test_editable_patch_prefers_quads_and_keeps_boundary_and_hole_topology(holes):
+    loops = [_ring(2, wave=0.2)]
+    if holes:
+        loops.append(_ring(0.7, count=23, wave=0.1))
+    mesh, boundary, interior = interpolate_cutting_surface(loops, margin=0.02)
+    try:
+        assert [mesh.vertices[i].co for i in boundary] == [
+            p for loop in loops for p in loop
+        ]
+        assert interior
+        assert all(len(face.vertices) in {3, 4} for face in mesh.polygons)
+        assert sum(len(face.vertices) == 4 for face in mesh.polygons) > 0.6 * len(
+            mesh.polygons
+        )
+        result = mesh_invariants(mesh)
+        assert result.vertex_count - result.edge_count + result.face_count == (
+            0 if holes else 1
+        )
+        assert result.boundary_edge_count == sum(len(loop) for loop in loops)
+        assert result.loose_part_count == 1
+        collar = [
+            face
+            for face in mesh.polygons
+            if any(i not in set(boundary) | set(interior) for i in face.vertices)
+        ]
+        assert len(collar) == sum(len(loop) for loop in loops)
+        assert all(len(face.vertices) == 4 for face in collar)
+        assert all(face.area > 0 for face in mesh.polygons)
+    finally:
+        bpy.data.meshes.remove(mesh)

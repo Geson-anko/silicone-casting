@@ -8,10 +8,15 @@ a manually made cutter.
 """
 
 from collections.abc import Sequence
-from math import fsum, isfinite
+from math import fsum, isfinite, radians
 from typing import cast
 
+# The bpy wheel initializes bmesh; keep this import order.
+# isort: off
 import bpy
+import bmesh
+# isort: on
+
 from mathutils import Vector
 from mathutils.geometry import delaunay_2d_cdt, intersect_point_line
 
@@ -297,6 +302,7 @@ def interpolate_cutting_surface(
             refined.extend(((a, b, index), (b, c, index), (c, a, index)))
         polygons = refined
         interior = tuple(range(start, len(positions)))
+    polygons = _join_interior_triangles(positions, polygons)
     if margin:
         _extend_boundary(positions, polygons, boundary, margin, normal)
     mesh = bpy.data.meshes.new("Drawn Cutting Surface")
@@ -307,6 +313,33 @@ def interpolate_cutting_surface(
         bpy.data.meshes.remove(mesh)
         raise
     return mesh, boundary, interior
+
+
+def _join_interior_triangles(
+    positions: Sequence[Vector], faces: Sequence[Sequence[int]]
+) -> list[tuple[int, ...]]:
+    """Prefer editable quads without moving vertices or bridging the rim.
+
+    Keep triangles where joining would create a sharply bent or
+    distorted quad. Joining after interpolation preserves the solved
+    vertex heights.
+    """
+    bm = bmesh.new()
+    try:
+        vertices = [bm.verts.new((point.x, point.y, point.z)) for point in positions]
+        indices = {vertex: i for i, vertex in enumerate(vertices)}
+        for face in faces:
+            bm.faces.new([vertices[i] for i in face])
+        bm.normal_update()
+        bmesh.ops.join_triangles(
+            bm,
+            faces=list(bm.faces),
+            angle_face_threshold=radians(40),
+            angle_shape_threshold=radians(40),
+        )
+        return [tuple(indices[vertex] for vertex in face.verts) for face in bm.faces]
+    finally:
+        bm.free()
 
 
 def _extend_boundary(
@@ -348,4 +381,4 @@ def _extend_boundary(
             raise ValueError(
                 "The cut margin overlaps; use a thinner cut or wider loops"
             )
-        faces.extend(((j, i, a), (j, a, b)))
+        faces.append((j, i, a, b))

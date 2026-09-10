@@ -142,6 +142,10 @@ def create_surface_cut(
     )
     object_info.transform_space = "RELATIVE"
 
+    # Resolve warped quads once before making both cutter caps. Independent
+    # tessellation of offset caps can choose different diagonals and cross.
+    triangulate = node_group.nodes.new("GeometryNodeTriangulate")
+
     normal = node_group.nodes.new("GeometryNodeInputNormal")
     uneven_extrude = cast(
         bpy.types.GeometryNodeExtrudeMesh,
@@ -256,6 +260,10 @@ def create_surface_cut(
     )
     links.new(
         _output(object_info, "Geometry"),
+        _input(triangulate, "Mesh"),
+    )
+    links.new(
+        _output(triangulate, "Mesh"),
         _input(captured_fields, "Geometry"),
     )
     links.new(_output(normal, "Normal"), _input(captured_fields, "Point Normal"))
@@ -329,7 +337,7 @@ def create_surface_cut(
         _input(uneven_extrude, "Offset Scale"),
     )
     links.new(_output(solidify_switch, "Output"), _input(flip, "Mesh"))
-    links.new(_output(object_info, "Geometry"), _input(join, "Geometry"))
+    links.new(_output(triangulate, "Mesh"), _input(join, "Geometry"))
     links.new(_output(flip, "Mesh"), _input(join, "Geometry"))
     links.new(_output(join, "Geometry"), _input(merge, "Geometry"))
     links.new(_output(group_input, "Thickness"), _input(merge_scale, 0))

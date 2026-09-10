@@ -153,6 +153,10 @@ def _steps():
     yield
     preview = next(obj for obj in bpy.data.objects if obj not in objects)
     assert preview.data.polygons
+    assert (
+        sum(len(face.vertices) == 4 for face in preview.data.polygons)
+        > len(preview.data.polygons) / 2
+    )
     assert preview.vertex_groups.get("Cut Interior") is not None
     assert len(sphere.modifiers) == 0
     event("RET")
@@ -198,6 +202,10 @@ def _steps():
     yield
     preview = next(obj for obj in bpy.data.objects if obj not in objects)
     assert preview.data.polygons
+    assert (
+        sum(len(face.vertices) == 4 for face in preview.data.polygons)
+        > len(preview.data.polygons) / 2
+    )
     assert len(torus.modifiers) == 0
     event("RET")
     yield
