@@ -77,6 +77,106 @@ def test_nonplanar_boundary_is_preserved_and_the_interior_is_curved():
         bpy.data.meshes.remove(mesh)
 
 
+@pytest.mark.parametrize("radii", [(1.0,), (1.0, 0.85)])
+@pytest.mark.parametrize("scale", [0.01, 1.0])
+def test_smooth_saddle_is_interpolated_without_triangle_spacing_artifacts(radii, scale):
+    # z = 0.2 * (x*x - y*y) has zero Laplacian, so its boundary values
+    # determine the same smooth saddle on both a disk and a narrow annulus.
+    loops = [
+        [point * scale for point in _ring(radius, count=64, wave=0.2 * radius**2)]
+        for radius in radii
+    ]
+    mesh, boundary, interior = interpolate_cutting_surface(loops)
+    try:
+        assert [mesh.vertices[i].co for i in boundary] == [
+            point for loop in loops for point in loop
+        ]
+        assert interior
+        for index in interior:
+            point = mesh.vertices[index].co / scale
+            assert point.z == pytest.approx(0.2 * (point.x**2 - point.y**2), abs=0.001)
+        result = mesh_invariants(mesh)
+        assert result.loose_part_count == 1
+        assert result.boundary_edge_count == 64 * len(radii)
+        assert result.vertex_count - result.edge_count + result.face_count == (
+            2 - len(radii)
+        )
+    finally:
+        bpy.data.meshes.remove(mesh)
+
+
+def test_matching_rims_are_bridged_by_regular_editable_quad_rows():
+    loops = [_ring(1, count=64, wave=0.2), _ring(0.85, count=64, wave=0.15)]
+    mesh, boundary, interior = interpolate_cutting_surface(loops)
+    try:
+        assert all(len(face.vertices) == 4 for face in mesh.polygons)
+        assert len(mesh.polygons) <= 4 * len(loops[0])
+        degree = [0] * len(mesh.vertices)
+        for edge in mesh.edges:
+            for index in edge.vertices:
+                degree[index] += 1
+        assert interior
+        assert all(degree[index] == 4 for index in interior)
+        assert [mesh.vertices[i].co for i in boundary] == [
+            point for loop in loops for point in loop
+        ]
+    finally:
+        bpy.data.meshes.remove(mesh)
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_unequal_shifted_rims_keep_a_quad_dominated_annulus(reverse):
+    outer = _ring(1, count=64, wave=0.2)
+    inner = _ring(0.85, count=47, wave=0.15)
+    inner = inner[13:] + inner[:13]
+    loops = [inner[::-1], outer] if reverse else [outer, inner]
+    mesh, boundary, interior = interpolate_cutting_surface(loops)
+    try:
+        assert [mesh.vertices[i].co for i in boundary] == [
+            point for loop in loops for point in loop
+        ]
+        assert interior
+        assert sum(len(face.vertices) == 4 for face in mesh.polygons) > (
+            0.8 * len(mesh.polygons)
+        )
+        assert all(face.area > 0 for face in mesh.polygons)
+        result = mesh_invariants(mesh)
+        assert result.vertex_count - result.edge_count + result.face_count == 0
+        assert result.boundary_edge_count == 111
+        assert result.loose_part_count == 1
+    finally:
+        bpy.data.meshes.remove(mesh)
+
+
+def test_concave_annulus_falls_back_without_bridging_across_the_notch():
+    outer = [
+        Vector((x, y, 0.1 * x))
+        for x, y in [
+            (-3, -3),
+            (3, -3),
+            (3, -1),
+            (-1, -1),
+            (-1, 1),
+            (3, 1),
+            (3, 3),
+            (-3, 3),
+        ]
+    ]
+    inner = [point + Vector((-2, 0, 0)) for point in _ring(0.4, count=24)]
+    mesh, boundary, _ = interpolate_cutting_surface([outer, inner])
+    try:
+        assert [mesh.vertices[i].co for i in boundary] == outer + inner
+        assert all(
+            face.center.x < -1 or abs(face.center.y) > 1 for face in mesh.polygons
+        )
+        result = mesh_invariants(mesh)
+        assert result.vertex_count - result.edge_count + result.face_count == 0
+        assert result.boundary_edge_count == 32
+        assert result.loose_part_count == 1
+    finally:
+        bpy.data.meshes.remove(mesh)
+
+
 def test_dense_pixel_sampled_boundary_keeps_a_clean_rim_for_the_cut_margin():
     # Screen-space sampling produces runs of collinear XY points with varying
     # surface heights. These must not add degenerate faces at the patch rim.

@@ -87,24 +87,112 @@ def _interpolate_heights(
     faces: Sequence[Sequence[int]],
     fixed: dict[int, float],
 ) -> list[float]:
-    """Solve the graph Laplacian with Dirichlet boundary heights."""
-    neighbors: list[set[int]] = [set() for _ in vertices]
+    """Solve the cotangent Laplacian with Dirichlet boundary heights.
+
+    Geometric weights prevent uneven triangle spacing from imprinting
+    bumps on the interpolated surface.
+    """
+    neighbors: list[dict[int, float]] = [{} for _ in vertices]
     for face in faces:
-        for a, b in zip(face, (*face[1:], face[0]), strict=True):
-            neighbors[a].add(b)
-            neighbors[b].add(a)
+        for corner in range(3):
+            a, b, c = (face[corner], face[(corner + 1) % 3], face[(corner + 2) % 3])
+            u = vertices[a] - vertices[c]
+            v = vertices[b] - vertices[c]
+            weight = u.dot(v) / abs(u.x * v.y - u.y * v.x)
+            neighbors[a][b] = neighbors[a].get(b, 0.0) + weight
+            neighbors[b][a] = neighbors[b].get(a, 0.0) + weight
     mean = sum(fixed.values()) / len(fixed)
     heights = [fixed.get(i, mean) for i in range(len(vertices))]
     free = [i for i, adjacent in enumerate(neighbors) if adjacent and i not in fixed]
     for _ in range(2000):
         change = 0.0
         for i in free:
-            height = sum(heights[j] for j in neighbors[i]) / len(neighbors[i])
+            height = sum(
+                heights[j] * weight for j, weight in neighbors[i].items()
+            ) / sum(neighbors[i].values())
             change = max(change, abs(height - heights[i]))
             heights[i] = height
         if change < 1e-7:
             return heights
     raise ValueError("Surface interpolation did not converge; simplify the loops")
+
+
+def _bridge_annulus(
+    loops: Sequence[Sequence[Vector]], depths: Sequence[int]
+) -> tuple[list[Vector], list[list[int]], list[tuple[int, ...]]] | None:
+    """Bridge two rims with three rows, falling back when the strip folds.
+
+    Match arc lengths after aligning the starting points. Unequal vertex
+    counts need occasional triangles, but all intermediate rows stay
+    quads. Original rim vertices are neither moved nor resampled.
+    """
+    if len(loops) != 2:
+        return None
+    coords = [point for loop in loops for point in loop]
+    rings: list[list[int]] = []
+    offset = 0
+    for loop in loops:
+        ring = list(range(offset, offset + len(loop)))
+        area = sum(
+            a.x * b.y - a.y * b.x
+            for a, b in zip(loop, (*loop[1:], loop[0]), strict=True)
+        )
+        if area < 0:
+            ring.reverse()
+        rings.append(ring)
+        offset += len(loop)
+    outer, inner = rings[depths.index(0)], rings[depths.index(1)]
+    start = min(
+        range(len(inner)),
+        key=lambda i: (coords[inner[i]] - coords[outer[0]]).length_squared,
+    )
+    inner = inner[start:] + inner[:start]
+
+    def fractions(ring: list[int]) -> list[float]:
+        lengths = [0.0]
+        for a, b in zip(ring, (*ring[1:], ring[0]), strict=True):
+            lengths.append(lengths[-1] + (coords[b] - coords[a]).length)
+        return [length / lengths[-1] for length in lengths]
+
+    outer_t, inner_t = fractions(outer), fractions(inner)
+    spokes: dict[tuple[int, int], list[int]] = {}
+
+    def spoke(a: int, b: int) -> list[int]:
+        if (a, b) not in spokes:
+            middle = len(coords)
+            coords.extend(coords[a].lerp(coords[b], step / 3) for step in (1, 2))
+            spokes[a, b] = [a, middle, middle + 1, b]
+        return spokes[a, b]
+
+    polygons: list[tuple[int, ...]] = []
+    i = j = 0
+    while i < len(outer) or j < len(inner):
+        next_outer = outer_t[i + 1] if i < len(outer) else float("inf")
+        next_inner = inner_t[j + 1] if j < len(inner) else float("inf")
+        aligned = abs(next_outer - next_inner) < 0.5 * min(
+            next_outer - outer_t[i], next_inner - inner_t[j]
+        )
+        advance_outer = aligned or next_outer < next_inner
+        advance_inner = aligned or next_inner < next_outer
+        left = spoke(outer[i % len(outer)], inner[j % len(inner)])
+        i += advance_outer
+        j += advance_inner
+        right = spoke(outer[i % len(outer)], inner[j % len(inner)])
+        for row in range(3):
+            face = (left[row], right[row], right[row + 1], left[row + 1])
+            polygons.append(tuple(dict.fromkeys(face)))
+
+    triangles: list[list[int]] = []
+    for face in polygons:
+        # A positive triangulation of every strip cell guarantees a locally
+        # unfolded bridge. Difficult concave rims use the general CDT patch.
+        cell = [[face[0], face[k], face[k + 1]] for k in range(1, len(face) - 1)]
+        for a, b, c in cell:
+            u, v = coords[b] - coords[a], coords[c] - coords[a]
+            if u.x * v.y - u.y * v.x <= 1e-9:
+                return None
+        triangles.extend(cell)
+    return coords, triangles, polygons
 
 
 def interpolate_cutting_surface(
@@ -179,11 +267,12 @@ def interpolate_cutting_surface(
     def in_patch(point: Vector) -> bool:
         return sum(_inside(point, loop) for loop in projected) % 2 == 1
 
+    bridge = _bridge_annulus(projected, depths)
     # Uniform interior samples make the automatically filled patch editable,
     # including the interior of a triangular or strongly concave boundary.
     low = Vector((min(p.x for p in vertices), min(p.y for p in vertices)))
     high = Vector((max(p.x for p in vertices), max(p.y for p in vertices)))
-    for x in range(1, _GRID_SIZE):
+    for x in range(1, _GRID_SIZE if bridge is None else 1):
         for y in range(1, _GRID_SIZE):
             point = Vector(
                 (
@@ -202,9 +291,13 @@ def interpolate_cutting_surface(
                     break
             if not on_edge and in_patch(point):
                 vertices.append(point)
-    coords, _, triangles, originals, _, _ = delaunay_2d_cdt(
-        vertices, edges, [], 0, _EPSILON
-    )
+    if bridge is None:
+        coords, _, triangles, originals, _, _ = delaunay_2d_cdt(
+            vertices, edges, [], 0, _EPSILON
+        )
+    else:
+        coords, triangles, _ = bridge
+        originals = [[i] if i < len(points) else [] for i in range(len(coords))]
     # Dense freehand boundaries can produce nearly collinear CDT triangles.
     # Use the original boundary coordinates and omit zero-area faces before
     # classifying the rim; otherwise a degenerate triangle reverses its edges.
@@ -260,22 +353,23 @@ def interpolate_cutting_surface(
             split_edges[a, b] = len(coords)
             coords.append((coords[a] + coords[b]) / 2)
     refined_faces: list[list[int]] = []
+    # Split only at the chord midpoints. A separate triangle center adds
+    # unnecessary faces, especially across narrow annular patches.
     for face in faces:
-        polygon: list[int] = []
+        triangles_to_split = [face]
         for a, b in zip(face, (*face[1:], face[0]), strict=True):
-            polygon.append(a)
             midpoint = split_edges.get((min(a, b), max(a, b)))
-            if midpoint is not None:
-                polygon.append(midpoint)
-        if len(polygon) == 3:
-            refined_faces.append(face)
-        else:
-            center = len(coords)
-            coords.append(sum((coords[i] for i in face), Vector((0.0, 0.0))) / 3)
-            refined_faces.extend(
-                [a, b, center]
-                for a, b in zip(polygon, (*polygon[1:], polygon[0]), strict=True)
-            )
+            if midpoint is None:
+                continue
+            for triangle in triangles_to_split:
+                if a in triangle and b in triangle:
+                    opposite = next(i for i in triangle if i not in (a, b))
+                    triangles_to_split.remove(triangle)
+                    triangles_to_split.extend(
+                        ([a, midpoint, opposite], [midpoint, b, opposite])
+                    )
+                    break
+        refined_faces.extend(triangles_to_split)
     faces = refined_faces
     heights = _interpolate_heights(coords, faces, fixed)
     used = sorted({i for face in faces for i in face})
@@ -302,7 +396,10 @@ def interpolate_cutting_surface(
             refined.extend(((a, b, index), (b, c, index), (c, a, index)))
         polygons = refined
         interior = tuple(range(start, len(positions)))
-    polygons = _join_interior_triangles(positions, polygons)
+    if bridge is None:
+        polygons = _join_interior_triangles(positions, polygons)
+    else:
+        polygons = [tuple(remap[i] for i in face) for face in bridge[2]]
     if margin:
         _extend_boundary(positions, polygons, boundary, margin, normal)
     mesh = bpy.data.meshes.new("Drawn Cutting Surface")
