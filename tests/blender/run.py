@@ -116,6 +116,8 @@ def check_addon_is_enabled() -> None:
         "export_stl",
         "add_boolean",
         "add_surface_cut",
+        "draw_surface_cut",
+        "edit_cutting_surface",
         "separate_loose_parts",
         "inherit_shape",
         "add_mixture_part",

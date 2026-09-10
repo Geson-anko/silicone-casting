@@ -14,6 +14,7 @@ from .color_mixing import (
     simulate_silicone_appearance,
     simulate_silicone_color,
 )
+from .drawn_surface import interpolate_cutting_surface
 from .mixture import MixtureBreakdown, calculate_mixture
 from .separate_loose_parts import separate_loose_parts
 from .solidify import (
@@ -54,6 +55,7 @@ __all__ = [
     "linear_rgb_to_hsl",
     "linear_rgb_to_srgb8",
     "mm_to_units",
+    "interpolate_cutting_surface",
     "parse_hex_color",
     "separate_loose_parts",
     "saturated_hsl_to_linear_rgb",

@@ -17,6 +17,8 @@ from .operators import (
     SILCAST_OT_apply_solidify,
     SILCAST_OT_copy_mixture_volume_to_coloring,
     SILCAST_OT_copy_value,
+    SILCAST_OT_draw_surface_cut,
+    SILCAST_OT_edit_cutting_surface,
     SILCAST_OT_export_stl,
     SILCAST_OT_inherit_shape,
     SILCAST_OT_measure_volume,
@@ -27,6 +29,7 @@ from .operators import (
     SILCAST_OT_select_mixture_part,
     SILCAST_OT_separate_loose_parts,
     SILCAST_OT_solidify,
+    cancel_surface_drawing,
 )
 from .ui import (
     SILCAST_PT_color_simulator,
@@ -56,6 +59,8 @@ _CLASSES = (
     SiliconeCastingProperties,
     SILCAST_OT_add_boolean,
     SILCAST_OT_add_surface_cut,
+    SILCAST_OT_draw_surface_cut,
+    SILCAST_OT_edit_cutting_surface,
     SILCAST_OT_solidify,
     SILCAST_OT_apply_solidify,
     SILCAST_OT_measure_volume,
@@ -118,6 +123,7 @@ def register() -> None:
 
 def unregister() -> None:
     """Detach the scene-level settings and unregister every class."""
+    cancel_surface_drawing()
     if _reset_transient_selection_state in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_reset_transient_selection_state)
     delattr(bpy.types.Scene, _SCENE_ATTR)
