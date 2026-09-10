@@ -1,7 +1,7 @@
 """Draw closed surface strokes and turn their interpolated patch into a cut."""
 
 from collections.abc import Sequence
-from typing import cast, override
+from typing import Literal, cast, override
 
 import bpy
 from bpy_extras import view3d_utils
@@ -88,6 +88,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
     _draw_handle: object
     _wire: bool
     _all_edges: bool
+    _timer: bpy.types.Timer
 
     @classmethod
     @override
@@ -195,6 +196,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
             self._draw_snap_hint, (), "WINDOW", "POST_PIXEL"
         )
         _active_drawing = self
+        self._timer = context.window_manager.event_timer_add(0.1, window=context.window)
         context.window_manager.modal_handler_add(self)
         self._header()
         return {"RUNNING_MODAL"}
@@ -452,6 +454,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         bpy.types.SpaceView3D.draw_handler_remove(self._draw_handle, "WINDOW")
         self._target.show_wire = self._wire
         self._target.show_all_edges = self._all_edges
+        bpy.context.window_manager.event_timer_remove(self._timer)
         self._area.header_text_set(None)
         self._area.tag_redraw()
         if not keep_surface:
@@ -483,13 +486,113 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
             self.report({"ERROR"}, f"Could not draw the cut: {error}")
             return {"CANCELLED"}
 
+    def _sync_margin(self, context: bpy.types.Context) -> None:
+        margin = mm_to_units(
+            context.scene.silicone_casting.surface_cut_margin_mm,
+            context.scene.unit_settings.scale_length,
+        )
+        if margin == self._margin:
+            return
+        self._margin = margin
+        if self._ready:
+            # Drop a stale preview if the new extension cannot be generated.
+            self._ready = False
+            self._preview.vertex_groups.clear()
+            self._show_strokes()
+            self._build_preview()
+
+    def _over_view_controls(
+        self, context: bpy.types.Context, event: bpy.types.Event
+    ) -> bool:
+        x, y = event.mouse_x, event.mouse_y
+        region = self._region
+        if not (
+            region.x <= x < region.x + region.width
+            and region.y <= y < region.y + region.height
+        ):
+            return True
+        right, top = region.x + region.width, region.y + region.height
+        for other in self._area.regions:
+            if other.type == "WINDOW" or other.width <= 1 or other.height <= 1:
+                continue
+            if (
+                other.x <= x < other.x + other.width
+                and other.y <= y < other.y + other.height
+            ):
+                return True
+            if other.type == "UI":
+                right = min(right, other.x)
+            elif other.type in {"HEADER", "TOOL_HEADER"} and other.y > region.y:
+                top = min(top, other.y)
+        space = self._area.spaces.active
+        assert isinstance(space, bpy.types.SpaceView3D)
+        if not (space.show_gizmo and space.show_gizmo_navigate):
+            return False
+        preferences = context.preferences
+        assert preferences is not None
+        scale = preferences.system.ui_scale
+        view = preferences.view
+        # Blender anchors navigation controls to the visible region's upper
+        # right corner, outside the sidebar (view3d_gizmo_navigate.cc).
+        size = view.gizmo_size_navigate_v3d
+        if view.mini_axis_type == "GIZMO":
+            if right - (size + 20) * scale <= x and top - (size + 20) * scale <= y:
+                return True
+            offset = (10 + size / 2) * 2.2
+        else:
+            offset = 22.5
+        return bool(
+            view.show_gizmo
+            and right - 40 * scale <= x
+            and top - (offset + 140) * scale <= y
+        )
+
     def _modal(
         self, context: bpy.types.Context, event: bpy.types.Event
     ) -> OperatorReturn:
         self._set_input_mode(context.scene.silicone_casting.surface_cut_input_mode)
+        self._sync_margin(context)
+        if event.type.startswith("TIMER"):
+            return {"PASS_THROUGH"}
+        if self._over_view_controls(context, event):
+            self._drawing = False
+            self._last_mouse = None
+            return {"PASS_THROUGH"}
         if event.type == "ESC" and event.value == "PRESS":
             self._cleanup()
             return {"CANCELLED"}
+        if event.type in {"N", "T"} and event.value == "PRESS":
+            space = self._area.spaces.active
+            assert isinstance(space, bpy.types.SpaceView3D)
+            if event.type == "N":
+                space.show_region_ui = not space.show_region_ui
+            else:
+                space.show_region_toolbar = not space.show_region_toolbar
+            return {"RUNNING_MODAL"}
+        axis = {"NUMPAD_1": "FRONT", "NUMPAD_3": "RIGHT", "NUMPAD_7": "TOP"}.get(
+            event.type
+        )
+        if axis is None:
+            preferences = context.preferences
+            if preferences is not None and preferences.inputs.use_emulate_numpad:
+                axis = {"ONE": "FRONT", "THREE": "RIGHT", "SEVEN": "TOP"}.get(
+                    event.type
+                )
+        if axis is not None and event.value == "PRESS":
+            self._drawing = False
+            self._last_mouse = None
+            if event.ctrl:
+                axis = {"FRONT": "BACK", "RIGHT": "LEFT", "TOP": "BOTTOM"}[axis]
+            with context.temp_override(  # pyright: ignore[reportUnknownMemberType]
+                area=self._area, region=self._region
+            ):
+                bpy.ops.view3d.view_axis(
+                    type=cast(
+                        Literal["LEFT", "RIGHT", "BOTTOM", "TOP", "FRONT", "BACK"], axis
+                    ),
+                    align_active=event.shift,
+                )
+            return {"RUNNING_MODAL"}
         if event.type in {
             "MIDDLEMOUSE",
             "WHEELUPMOUSE",
@@ -497,7 +600,10 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
             "TRACKPADPAN",
             "TRACKPADZOOM",
             "NDOF_MOTION",
-        } or event.type.startswith("NUMPAD"):
+            "ACCENT_GRAVE",
+            "N",
+            "T",
+        } or (event.type.startswith("NUMPAD") and event.type != "NUMPAD_ENTER"):
             self._drawing = False
             self._last_mouse = None
             return {"PASS_THROUGH"}

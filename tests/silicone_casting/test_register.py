@@ -417,3 +417,22 @@ class TestColorProfileSettings:
         assert colorant_properties["calibration_hex"].is_skip_save
 
         settings.color_profiles.clear()
+
+
+@pytest.mark.parametrize("scale", [1.0, 0.1, 0.001])
+def test_boundary_distance_preserves_saved_millimetres_across_scene_scales(
+    registered: None, scale: float
+) -> None:
+    scene = bpy.data.scenes.new("Boundary Units")
+    try:
+        scene.unit_settings.scale_length = scale
+        props = scene.silicone_casting
+        props.surface_cut_margin_mm = 0.2
+        assert props.surface_cut_margin == pytest.approx(0.0002 / scale)
+        props.surface_cut_margin = 0.0005 / scale
+        assert props.surface_cut_margin_mm == pytest.approx(0.5)
+        scene.unit_settings.scale_length = scale * 2
+        assert props.surface_cut_margin == pytest.approx(0.0005 / (scale * 2))
+        assert props.surface_cut_margin_mm == pytest.approx(0.5)
+    finally:
+        bpy.data.scenes.remove(scene)

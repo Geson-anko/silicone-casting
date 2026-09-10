@@ -262,6 +262,8 @@ def _steps():
 
 
 def main():
+    bpy.context.preferences.use_preferences_save = False
+    bpy.context.preferences.view.show_splash = False
     steps = _steps()
     result = Path(tempfile.gettempdir()) / "silcast-draw-gui-result.txt"
     result.write_text("RUNNING\n")
