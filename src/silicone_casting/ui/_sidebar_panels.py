@@ -166,6 +166,7 @@ class SILCAST_PT_processing(bpy.types.Panel):
         )
         boolean.separator()
         boolean.prop(props, "surface_cut_margin_mm")
+        boolean.prop(props, "surface_cut_input_mode", expand=True)
         boolean.operator(SILCAST_OT_draw_surface_cut.bl_idname, icon="GREASEPENCIL")
         boolean.operator(SILCAST_OT_edit_cutting_surface.bl_idname, icon="EDITMODE_HLT")
         object_row = layout.row()

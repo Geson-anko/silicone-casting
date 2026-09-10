@@ -126,6 +126,25 @@ class SiliconeCastingProperties(bpy.types.PropertyGroup):
         precision=3,
     )
 
+    surface_cut_input_mode: EnumProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Input",
+        description="How to add points to the cutting boundary while drawing",
+        items=(
+            (
+                "FREEHAND",
+                "Freehand",
+                "Draw on the visible surface; Ctrl-click for a line",
+            ),
+            (
+                "VERTEX",
+                "Vertex",
+                "Click visible mesh vertices to snap the stroke endpoints",
+            ),
+            ("EDGE", "Edge", "Click connected mesh edges to build the boundary"),
+        ),
+        default="FREEHAND",
+    )
+
     # Deliberately no ``unit="VOLUME"``, for the same reason as above: it
     # would make Blender render the value in the scene's unit settings, while
     # this add-on always reports volumes in millilitres.

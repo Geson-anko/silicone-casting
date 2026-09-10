@@ -11,7 +11,9 @@ from mathutils.bvhtree import BVHTree
 from ..core import MIN_SURFACE_CUT_THICKNESS_MM, create_surface_cut, mm_to_units
 from ..core.cut_strokes import project_straight_segment, smooth_surface_stroke
 from ..core.drawn_surface import interpolate_cutting_surface, simplify_closed_loop
+from ..core.surface_picking import extend_stroke_along_edge, pick_surface_element
 from ._operator import OperatorReturn
+from ._stroke_overlay import draw_snap_hint
 
 _BOUNDARY_GROUP = "Cut Boundary"
 _INTERIOR_GROUP = "Cut Interior"
@@ -79,6 +81,13 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
     _thickness: float
     _margin: float
     _minimum: float
+    _vertices: list[Vector]
+    _edges: list[tuple[int, int]]
+    _input_mode: str
+    _hover: tuple[int, ...] | None
+    _draw_handle: object
+    _wire: bool
+    _all_edges: bool
 
     @classmethod
     @override
@@ -97,7 +106,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
             message = (
                 "Preview: Enter = cut | Backspace = return to drawing | Esc = cancel"
                 if self._ready
-                else f"{len(self._loops)} loops | Draw: LMB | Line: Ctrl-click | Smooth: S | Undo: Ctrl-Z | Close: C | Preview: Space | Esc: cancel"
+                else f"{len(self._loops)} loops | {self._input_mode.title()}: LMB | Line: Ctrl-click | Smooth: S | Undo: Ctrl-Z | Close: C | Preview: Space | Esc: cancel"
             )
         self._area.header_text_set(message)
         self._area.tag_redraw()
@@ -132,16 +141,23 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         mesh = evaluated.to_mesh()
         try:
             points = [target.matrix_world @ vertex.co for vertex in mesh.vertices]
+            self._vertices = points
+            self._edges = []
+            for edge in mesh.edges:
+                a, b = cast(Sequence[int], edge.vertices)
+                self._edges.append((a, b))
             if not mesh.polygons or not points:
                 self.report({"WARNING"}, "Choose a mesh with faces to draw on")
                 return {"CANCELLED"}
-            self._bvh = BVHTree.FromPolygons(
-                [(p.x, p.y, p.z) for p in points],
-                [tuple(cast(Sequence[int], face.vertices)) for face in mesh.polygons],
-            )
             low = Vector(tuple(min(p[i] for p in points) for i in range(3)))
             high = Vector(tuple(max(p[i] for p in points) for i in range(3)))
             self._size = (high - low).length
+            # Include silhouette hits without moving strokes appreciably.
+            self._bvh = BVHTree.FromPolygons(
+                [(p.x, p.y, p.z) for p in points],
+                [tuple(cast(Sequence[int], face.vertices)) for face in mesh.polygons],
+                epsilon=self._size * 1e-7,
+            )
         finally:
             evaluated.to_mesh_clear()
         if self._size <= 0:
@@ -170,6 +186,14 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         self._drawing = False
         self._ready = False
         self._last_mouse = None
+        self._wire = target.show_wire
+        self._all_edges = target.show_all_edges
+        self._input_mode = ""
+        self._hover = None
+        self._set_input_mode(props.surface_cut_input_mode)
+        self._draw_handle = bpy.types.SpaceView3D.draw_handler_add(
+            self._draw_snap_hint, (), "WINDOW", "POST_PIXEL"
+        )
         _active_drawing = self
         context.window_manager.modal_handler_add(self)
         self._header()
@@ -194,11 +218,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         mesh.update()
         self._area.tag_redraw()
 
-    def _point(self, mouse: Vector) -> Vector | None:
-        if not (
-            0 <= mouse.x < self._region.width and 0 <= mouse.y < self._region.height
-        ):
-            return None
+    def _ray(self, mouse: Vector) -> tuple[Vector, Vector]:
         origin = view3d_utils.region_2d_to_origin_3d(
             self._region,
             self._view,
@@ -209,8 +229,109 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         direction = view3d_utils.region_2d_to_vector_3d(
             self._region, self._view, (mouse.x, mouse.y)
         )
+        return origin, direction
+
+    def _point(self, mouse: Vector) -> Vector | None:
+        if not (
+            0 <= mouse.x < self._region.width and 0 <= mouse.y < self._region.height
+        ):
+            return None
+        origin, direction = self._ray(mouse)
         point, _, _, _ = self._bvh.ray_cast(origin, direction)
         return point
+
+    def _project(self, point: Vector) -> Vector | None:
+        return view3d_utils.location_3d_to_region_2d(self._region, self._view, point)
+
+    def _set_input_mode(self, mode: str) -> None:
+        if mode == self._input_mode:
+            return
+        self._input_mode = mode
+        self._drawing = False
+        self._last_mouse = None
+        self._hover = None
+        self._target.show_wire = self._wire or mode != "FREEHAND"
+        self._target.show_all_edges = self._all_edges or mode != "FREEHAND"
+        self._header()
+
+    def _pick(self, mouse: Vector) -> tuple[int, ...] | None:
+        return pick_surface_element(
+            mouse,
+            self._vertices,
+            self._edges,
+            self._project,
+            self._ray,
+            self._bvh,
+            vertex_mode=self._input_mode == "VERTEX",
+            tolerance=self._size * 1e-6,
+        )
+
+    def _draw_snap_hint(self) -> None:
+        if bpy.context.region != self._region or self._ready or self._hover is None:
+            return
+        pixels = [self._project(self._vertices[i]) for i in self._hover]
+        draw_snap_hint([pixel for pixel in pixels if pixel is not None])
+
+    def _snap_click(self, mouse: Vector) -> None:
+        self._hover = self._pick(mouse)
+        if self._hover is None:
+            self._header("Click near a visible vertex or edge")
+            return
+        try:
+            if len(self._hover) == 2:
+                a, b = (self._vertices[i] for i in self._hover)
+                stroke = extend_stroke_along_edge(self._stroke, a, b, self._size * 1e-6)
+            else:
+                point = self._vertices[self._hover[0]]
+                if not self._stroke:
+                    stroke = [point.copy()]
+                else:
+                    start, end = self._project(self._stroke[-1]), self._project(point)
+                    if start is None or end is None:
+                        raise ValueError("Orbit until the stroke endpoint is visible")
+                    if (point - self._stroke[-1]).length < self._size * 1e-6:
+                        return
+                    origin, direction = self._ray(start)
+                    distance = (self._stroke[-1] - origin).dot(direction)
+                    if (
+                        self._bvh.ray_cast(
+                            origin, direction, max(0.0, distance - self._size * 1e-6)
+                        )[0]
+                        is not None
+                    ):
+                        raise ValueError("Orbit until the stroke endpoint is visible")
+
+                    def project(pixel: Vector) -> Vector | None:
+                        if (pixel - start).length < 1e-5:
+                            return self._stroke[-1].copy()
+                        if (pixel - end).length < 1e-5:
+                            return point.copy()
+                        return self._point(pixel)
+
+                    connected = any(
+                        self._hover[0] in edge
+                        and any(
+                            (self._vertices[i] - self._stroke[-1]).length
+                            < self._size * 1e-6
+                            for i in edge
+                        )
+                        for edge in self._edges
+                    )
+                    segment = (
+                        [self._stroke[-1], point.copy()]
+                        if connected
+                        else project_straight_segment(
+                            start, end, project, self._size * 0.04
+                        )
+                    )
+                    stroke = [*self._stroke, *segment[1:]]
+        except ValueError as error:
+            self._header(str(error))
+            return
+        self._remember()
+        self._stroke = stroke
+        self._show_strokes()
+        self._header()
 
     def _append_point(self, mouse: Vector) -> bool:
         point = self._point(mouse)
@@ -328,6 +449,9 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
     def _cleanup(self, *, keep_surface: bool = False) -> None:
         global _active_drawing
         _active_drawing = None
+        bpy.types.SpaceView3D.draw_handler_remove(self._draw_handle, "WINDOW")
+        self._target.show_wire = self._wire
+        self._target.show_all_edges = self._all_edges
         self._area.header_text_set(None)
         self._area.tag_redraw()
         if not keep_surface:
@@ -362,6 +486,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
     def _modal(
         self, context: bpy.types.Context, event: bpy.types.Event
     ) -> OperatorReturn:
+        self._set_input_mode(context.scene.silicone_casting.surface_cut_input_mode)
         if event.type == "ESC" and event.value == "PRESS":
             self._cleanup()
             return {"CANCELLED"}
@@ -428,6 +553,9 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
                 (event.mouse_x - self._region.x, event.mouse_y - self._region.y)
             )
             if event.value == "PRESS":
+                if self._input_mode != "FREEHAND":
+                    self._snap_click(mouse)
+                    return {"RUNNING_MODAL"}
                 if event.ctrl:
                     self._drawing = False
                     self._last_mouse = None
@@ -441,6 +569,11 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
             elif event.value == "RELEASE":
                 self._drawing = False
                 self._last_mouse = None
+        elif event.type == "MOUSEMOVE" and self._input_mode != "FREEHAND":
+            self._hover = self._pick(
+                Vector((event.mouse_x - self._region.x, event.mouse_y - self._region.y))
+            )
+            self._area.tag_redraw()
         elif event.type == "MOUSEMOVE" and self._drawing:
             mouse = Vector(
                 (event.mouse_x - self._region.x, event.mouse_y - self._region.y)
