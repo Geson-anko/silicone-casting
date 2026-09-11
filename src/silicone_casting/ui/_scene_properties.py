@@ -1,5 +1,6 @@
 """Scene-level RNA settings and child property-group aggregation."""
 
+from math import atan, pi, tan
 from typing import cast
 
 import bpy
@@ -303,6 +304,33 @@ class SiliconeCastingProperties(bpy.types.PropertyGroup):
         default=0.2,
         min=0.0,
         max=0.9,
+    )
+
+    def _get_key_taper_angle(self) -> float:
+        width = cast(float, getattr(self, "key_width_mm"))
+        height = cast(float, getattr(self, "key_height_mm"))
+        taper = cast(float, getattr(self, "key_taper"))
+        return atan(width * taper / (2 * height))
+
+    def _set_key_taper_angle(self, value: float) -> None:
+        width = cast(float, getattr(self, "key_width_mm"))
+        height = cast(float, getattr(self, "key_height_mm"))
+        self.key_taper = min(0.9, 2 * height * tan(value) / width)
+
+    key_taper_angle: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Taper Angle",
+        description=(
+            "Sidewall angle from the dowel axis (0 is cylindrical). "
+            "Linked to tip reduction, diameter and protrusion; "
+            "limited to 90% tip reduction. Changing dimensions recalculates the angle"
+        ),
+        subtype="ANGLE",
+        unit="ROTATION",
+        min=0.0,
+        max=pi / 2 - 0.0001,
+        precision=2,
+        get=_get_key_taper_angle,
+        set=_set_key_taper_angle,
     )
     key_angle: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
         name="Rotation",

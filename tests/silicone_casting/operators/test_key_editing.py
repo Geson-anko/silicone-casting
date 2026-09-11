@@ -2,7 +2,7 @@
 halves."""
 
 from collections.abc import Iterator
-from math import pi, sin
+from math import atan, pi, sin, sqrt
 
 import bpy
 import pytest
@@ -289,3 +289,46 @@ def test_fixed_axis_ignores_cursor_rotation_and_saved_settings_can_be_reloaded(
     assert p.key_shape == "RECTANGLE"
     assert p.key_angle == pytest.approx(0.3)
     assert p.key_width_mm == pytest.approx(5)
+
+
+@pytest.mark.parametrize("scale", [0.001, 1.0])
+def test_taper_angle_builds_matching_slopes_and_survives_reselection(halves, scale):
+    p = bpy.context.scene.silicone_casting
+    bpy.context.scene.unit_settings.scale_length = scale
+    p.key_shape = "TAPERED"
+    p.key_width_mm = 8
+    p.key_taper_angle = pi / 6
+    pin = _add()
+    socket = key_socket(pin)
+    assert socket is not None
+    unit = 0.001 / scale
+    # A 30-degree sidewall retreats height / sqrt(3) from the base radius.
+    pin_top = max(v.co.x for v in pin.data.vertices if v.co.z > 0)
+    socket_top = max(v.co.x for v in socket.data.vertices if v.co.z > 0)
+    assert pin_top == pytest.approx((4 - sqrt(3)) * unit)
+    assert socket_top == pytest.approx((4.2 - 3.4 / sqrt(3)) * unit)
+    assert mesh_invariants(pin.data).is_watertight
+    assert mesh_invariants(socket.data).is_watertight
+
+    p.key_taper = 0
+    load_key_settings(bpy.context, pin)
+    assert p.key_taper_angle == pytest.approx(pi / 6)
+    p.key_taper_angle = 0
+    assert bpy.ops.silicone_casting.edit_registration_key() == {"FINISHED"}
+    assert max(v.co.x for v in pin.data.vertices if v.co.z > 0) == pytest.approx(
+        4 * unit
+    )
+
+
+def test_taper_angle_tracks_dimensions_and_limits_tip_reduction(halves):
+    p = bpy.context.scene.silicone_casting
+    p.key_shape = "TAPERED"
+    p.key_depth_clearance_mm = 0
+    p.key_taper_angle = pi / 6
+    p.key_height_mm = 6
+    assert p.key_taper_angle == pytest.approx(atan(0.5 / sqrt(3)))
+    p.key_taper_angle = pi / 3
+    pin = _add()
+    # Requested 60 degrees cannot fit: retain a 10% tip and show the actual angle.
+    assert p.key_taper_angle == pytest.approx(atan(1.8 / 6))
+    assert max(v.co.x for v in pin.data.vertices if v.co.z > 0) == pytest.approx(0.2)

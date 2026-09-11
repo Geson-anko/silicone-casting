@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Final, override
+from typing import Final, cast, override
 
 import bpy
 
@@ -187,38 +187,44 @@ class SILCAST_PT_processing(bpy.types.Panel):
             icon="MESH_DATA",
         )
         layout.separator()
-        keys = layout.box()
-        keys.label(text="Registration Keys")
-        keys.label(text="Active half: pin")
-        keys.prop(props, "key_mate")
-        keys.prop(props, "key_shape")
-        keys.prop(props, "key_width")
-        if props.key_shape == "RECTANGLE":
-            keys.prop(props, "key_length")
-        if props.key_shape == "TAPERED":
-            keys.prop(props, "key_taper")
-        for name in ("height", "embed", "clearance", "depth_clearance"):
-            keys.prop(props, f"key_{name}")
-        keys.prop(props, "key_align_normal")
-        if not props.key_align_normal:
-            keys.prop(props, "key_axis", expand=True)
-        keys.prop(props, "key_flip")
-        keys.prop(props, "key_angle")
-        row = keys.row(align=True)
-        row.operator("silicone_casting.start_key_placement", icon="ADD")
-        row.operator(
-            "silicone_casting.stop_key_placement", text="Done", icon="CHECKMARK"
+        # Blender returns None for the body when collapsed; the stub omits it.
+        header, keys = cast(
+            tuple[bpy.types.UILayout, bpy.types.UILayout | None],
+            layout.panel("registration_keys", default_closed=False),
         )
-        keys.label(text="Click: add / select")
-        keys.label(text="Drag: move / Delete: remove")
-        if props.key_active is not None:
-            keys.label(text=f"Selected: {props.key_active.name}")
-            keys.operator(
-                "silicone_casting.edit_registration_key", text="Update Selected Key"
+        header.label(text="Registration Keys")
+        if keys is not None:
+            keys.label(text="Active half: pin")
+            keys.prop(props, "key_mate")
+            keys.prop(props, "key_shape")
+            keys.prop(props, "key_width")
+            if props.key_shape == "RECTANGLE":
+                keys.prop(props, "key_length")
+            if props.key_shape == "TAPERED":
+                keys.prop(props, "key_taper_angle")
+                keys.prop(props, "key_taper")
+            for name in ("height", "embed", "clearance", "depth_clearance"):
+                keys.prop(props, f"key_{name}")
+            keys.prop(props, "key_align_normal")
+            if not props.key_align_normal:
+                keys.prop(props, "key_axis", expand=True)
+            keys.prop(props, "key_flip")
+            keys.prop(props, "key_angle")
+            row = keys.row(align=True)
+            row.operator("silicone_casting.start_key_placement", icon="ADD")
+            row.operator(
+                "silicone_casting.stop_key_placement", text="Done", icon="CHECKMARK"
             )
-            keys.operator(
-                "silicone_casting.delete_registration_key",
-                text="Delete Selected Key",
-                icon="X",
-            )
+            keys.label(text="Click: add / select")
+            keys.label(text="Drag: move / Delete: remove")
+            if props.key_active is not None:
+                keys.label(text=f"Selected: {props.key_active.name}")
+                keys.operator(
+                    "silicone_casting.edit_registration_key", text="Update Selected Key"
+                )
+                keys.operator(
+                    "silicone_casting.delete_registration_key",
+                    text="Delete Selected Key",
+                    icon="X",
+                )
         layout.operator(SILCAST_OT_export_stl.bl_idname, icon="EXPORT")
