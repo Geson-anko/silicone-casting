@@ -1,0 +1,381 @@
+"""Exercise freehand input in a GUI started with --enable-event-simulate.
+
+Run after installing the extension, in a disposable Blender window.
+Unlike the background integration suite, this drives real window events
+and leaves the final curved cut visible for inspection. The timer prints
+a final result and writes it to the temporary directory for automation.
+"""
+
+import tempfile
+import traceback
+from math import cos, pi, sin
+from pathlib import Path
+
+import bpy
+from bpy_extras.view3d_utils import location_3d_to_region_2d
+from mathutils import Quaternion, Vector
+
+
+def _assert_split(target):
+    evaluated = target.evaluated_get(bpy.context.evaluated_depsgraph_get())
+    mesh = evaluated.to_mesh()
+    try:
+        edges = {}
+        adjacent = [set() for _ in mesh.vertices]
+        for polygon in mesh.polygons:
+            face = list(polygon.vertices)
+            for a, b in zip(face, face[1:] + face[:1]):
+                key = tuple(sorted((a, b)))
+                edges[key] = edges.get(key, 0) + 1
+                adjacent[a].add(b)
+                adjacent[b].add(a)
+        assert edges and all(count == 2 for count in edges.values())
+        remaining = set(range(len(adjacent)))
+        parts = 0
+        while remaining:
+            parts += 1
+            stack = [remaining.pop()]
+            while stack:
+                neighbors = adjacent[stack.pop()] & remaining
+                remaining.difference_update(neighbors)
+                stack.extend(neighbors)
+        assert parts == 2, f"Expected two parts, got {parts}"
+    finally:
+        evaluated.to_mesh_clear()
+
+
+def _assert_extension(surface, distance):
+    mesh = surface.data
+    boundary_group = surface.vertex_groups["Cut Boundary"].index
+    boundary = {
+        vertex.index
+        for vertex in mesh.vertices
+        if any(group.group == boundary_group for group in vertex.groups)
+    }
+    collar = {vertex.index for vertex in mesh.vertices if not vertex.groups}
+    if distance == 0:
+        assert not collar
+        return
+    extensions = [
+        edge
+        for edge in mesh.edges
+        if len(set(edge.vertices) & boundary) == 1
+        and len(set(edge.vertices) & collar) == 1
+    ]
+    assert len(extensions) == len(boundary)
+    for edge in extensions:
+        a, b = (mesh.vertices[i].co for i in edge.vertices)
+        assert abs((a - b).length - distance) < 1e-7
+
+
+def _steps():
+    assert bpy.app.use_event_simulate, "Start Blender with --enable-event-simulate"
+    window = bpy.context.window
+    area = next(a for a in window.screen.areas if a.type == "VIEW_3D")
+    region = next(r for r in area.regions if r.type == "WINDOW")
+    view = area.spaces.active.region_3d
+    for obj in bpy.context.scene.objects:
+        obj.hide_set(True)
+    with bpy.context.temp_override(window=window, area=area, region=region):
+        bpy.ops.mesh.primitive_uv_sphere_add(segments=64, ring_count=32, radius=0.02)
+    sphere = bpy.context.active_object
+    sphere.name = "Draw Test - Curved Solid"
+    view.view_rotation = Quaternion((1, 0, 0, 0))
+    view.view_location = (0, 0, 0)
+    view.view_distance = 0.12
+    view.view_perspective = "ORTHO"
+    area.spaces.active.clip_start = 0.00001
+    area.tag_redraw()
+    bpy.context.scene.silicone_casting.surface_cut_thickness_mm = 0.001
+    bpy.context.scene.unit_settings.scale_length = 1.0
+    yield
+
+    def invoke():
+        with bpy.context.temp_override(window=window, area=area, region=region):
+            assert bpy.ops.silicone_casting.draw_surface_cut("INVOKE_DEFAULT") == {
+                "RUNNING_MODAL"
+            }
+
+    def event(kind, value="PRESS", point=None, *, ctrl=False, alt=False, shift=False):
+        pixel = (
+            location_3d_to_region_2d(region, view, point)
+            if point is not None
+            else Vector((region.width / 2, region.height / 2))
+        )
+        assert pixel is not None
+        window.event_simulate(
+            ctrl=ctrl,
+            alt=alt,
+            shift=shift,
+            type=kind,
+            value=value,
+            x=round(region.x + pixel.x),
+            y=round(region.y + pixel.y),
+        )
+
+    def stroke(rx, ry):
+        # Avoid placing the initial ray exactly on the sphere tessellation seam.
+        phase = pi / 120
+        start = Vector((rx * cos(phase), ry * sin(phase), 0))
+        event("LEFTMOUSE", point=start)
+        yield
+        for i in range(1, 121):
+            angle = phase + 2 * pi * i / 120
+            point = Vector((rx * cos(angle), ry * sin(angle), 0))
+            stroke_mesh = bpy.data.objects.get("Cut Strokes").data
+            count = len(stroke_mesh.vertices)
+            event("MOUSEMOVE", "NOTHING", point)
+            yield
+            if len(stroke_mesh.vertices) == count:
+                # Resume a paused stroke near its end after a missed surface hit.
+                event("LEFTMOUSE", "RELEASE", point)
+                yield
+                event("LEFTMOUSE", point=point)
+                yield
+        event("LEFTMOUSE", "RELEASE", start)
+        yield
+        event("C")
+        yield
+
+    # Edge-loop and shortest-path clicks use mesh topology, with local undo/redo.
+    props = bpy.context.scene.silicone_casting
+    props.surface_cut_input_mode = "EDGE"
+    ring_edges = [
+        edge
+        for edge in sphere.data.edges
+        if abs(sphere.data.vertices[edge.vertices[0]].co.z - 0.014142) < 0.00001
+        and abs(sphere.data.vertices[edge.vertices[1]].co.z - 0.014142) < 0.00001
+    ]
+    assert len(ring_edges) == 64
+
+    def midpoint(edge):
+        return sum((sphere.data.vertices[i].co for i in edge.vertices), Vector()) / 2
+
+    picked = ring_edges[0]
+    objects_before = set(bpy.data.objects)
+    invoke()
+    yield
+    event("LEFTMOUSE", point=midpoint(picked), alt=True)
+    yield
+    event("LEFTMOUSE", "RELEASE", midpoint(picked))
+    yield
+    preview = next(obj for obj in bpy.data.objects if obj not in objects_before)
+    loop_points = [v.co.copy() for v in preview.data.vertices]
+    assert len(loop_points) == 65 and loop_points[0] == loop_points[-1]
+    event("Z", ctrl=True)
+    yield
+    assert not preview.data.vertices
+    event("Z", ctrl=True, shift=True)
+    yield
+    assert [v.co.copy() for v in preview.data.vertices] == loop_points
+    event("C")
+    yield
+    event("SPACE")
+    yield
+    assert preview.data.polygons
+    event("Z", ctrl=True)
+    yield
+    assert not preview.data.polygons
+    assert [v.co.copy() for v in preview.data.vertices] == loop_points
+    event("Y", ctrl=True)
+    yield
+    assert len(preview.data.vertices) == 64
+    event("ESC")
+    yield
+    invoke()
+    yield
+    event("LEFTMOUSE", point=midpoint(picked))
+    yield
+    event("LEFTMOUSE", "RELEASE", midpoint(picked))
+    yield
+    preview = next(obj for obj in bpy.data.objects if obj not in objects_before)
+    single = [v.co.copy() for v in preview.data.vertices]
+    assert len(single) == 2
+    distant = max(
+        ring_edges, key=lambda edge: (midpoint(edge) - midpoint(picked)).length
+    )
+    event("LEFTMOUSE", point=midpoint(distant), ctrl=True)
+    yield
+    event("LEFTMOUSE", "RELEASE", midpoint(distant))
+    yield
+    path_points = [v.co.copy() for v in preview.data.vertices]
+    assert len(path_points) > 3
+    event("Z", ctrl=True)
+    yield
+    assert [v.co.copy() for v in preview.data.vertices] == single
+    event("Y", ctrl=True)
+    yield
+    assert [v.co.copy() for v in preview.data.vertices] == path_points
+    event("Z", ctrl=True)
+    yield
+    event("BACK_SPACE")
+    yield
+    event("Y", ctrl=True)
+    yield
+    assert not preview.data.vertices
+    event("ESC")
+    yield
+    props.surface_cut_input_mode = "FREEHAND"
+
+    # Cancel after actual input, then start a fresh drawing without leaked data.
+    objects = set(bpy.data.objects)
+    meshes = set(bpy.data.meshes)
+    invoke()
+    yield
+    event("LEFTMOUSE", point=Vector((0.01, 0, 0)))
+    yield
+    event("MOUSEMOVE", "NOTHING", Vector((0.01, 0.002, 0)))
+    yield
+    event("LEFTMOUSE", "RELEASE", Vector((0.01, 0.002, 0)))
+    yield
+    event("ESC")
+    yield
+    assert set(bpy.data.objects) == objects
+    assert set(bpy.data.meshes) == meshes
+    assert len(sphere.modifiers) == 0
+    assert set(bpy.context.selected_objects) == {sphere}
+
+    # Straight clicks follow the visible surface; smoothing is locally undoable.
+    invoke()
+    yield
+    for point in [(-0.01, -0.008, 0), (0.01, -0.008, 0), (0.01, 0.008, 0)]:
+        event("LEFTMOUSE", point=Vector(point), ctrl=True)
+        yield
+        event("LEFTMOUSE", "RELEASE", Vector(point), ctrl=True)
+        yield
+    preview = next(obj for obj in bpy.data.objects if obj not in objects)
+    before = [v.co.copy() for v in preview.data.vertices]
+    assert len(before) > 10
+    assert abs(before[0].x + 0.01) < 0.0005
+    assert abs(before[-1].y - 0.008) < 0.0005
+    assert all(p.z > 0.01 for p in before)
+    event("S")
+    yield
+    after = [v.co.copy() for v in preview.data.vertices]
+    assert after[0] == before[0] and after[-1] == before[-1]
+    assert any((a - b).length > 1e-6 for a, b in zip(before, after))
+    event("Z", ctrl=True)
+    yield
+    assert [v.co.copy() for v in preview.data.vertices] == before
+    event("Z", ctrl=True)
+    yield
+    assert len(preview.data.vertices) < len(before)
+    event("ESC")
+    yield
+    assert set(bpy.data.objects) == objects
+
+    # Zero means no collar, without an automatic thickness/size minimum.
+    bpy.context.scene.silicone_casting.surface_cut_margin_mm = 0
+    invoke()
+    yield
+    yield from stroke(0.014, 0.009)
+    event("SPACE")
+    yield
+    preview = next(obj for obj in bpy.data.objects if obj not in objects)
+    assert preview.data.polygons
+    _assert_extension(preview, 0)
+    event("ESC")
+    yield
+
+    bpy.context.scene.silicone_casting.surface_cut_margin_mm = 0.2
+    invoke()
+    yield
+    yield from stroke(0.014, 0.009)
+    event("SPACE")
+    yield
+    preview = next(obj for obj in bpy.data.objects if obj not in objects)
+    assert preview.data.polygons
+    assert preview.display_type == "SOLID"
+    _assert_extension(preview, 0.0002)
+    assert (
+        sum(len(face.vertices) == 4 for face in preview.data.polygons)
+        > len(preview.data.polygons) / 2
+    )
+    assert preview.vertex_groups.get("Cut Interior") is not None
+    assert len(sphere.modifiers) == 0
+    event("RET")
+    yield
+    assert len(sphere.modifiers) == 1
+    assert preview.display_type == "SOLID"
+    _assert_split(sphere)
+    with bpy.context.temp_override(window=window, area=area, region=region):
+        assert bpy.ops.silicone_casting.edit_cutting_surface() == {"FINISHED"}
+        assert bpy.context.mode == "EDIT_MESH"
+        # Shape the center with a smooth falloff. Translating every interior
+        # vertex uniformly would lift the rim-adjacent vertices through the
+        # spherical skin and intentionally create additional intersections.
+        bpy.ops.mesh.select_all(action="DESELECT")
+        center = location_3d_to_region_2d(region, view, Vector((0, 0, 0)))
+        bpy.ops.view3d.select(location=(round(center.x), round(center.y)))
+        bpy.ops.transform.translate(
+            value=(0, 0, 0.001),
+            use_proportional_edit=True,
+            proportional_size=0.006,
+            proportional_edit_falloff="SMOOTH",
+        )
+        bpy.ops.object.mode_set(mode="OBJECT")
+    yield
+    _assert_split(sphere)
+    sphere.hide_set(True)
+    preview.hide_set(True)
+
+    with bpy.context.temp_override(window=window, area=area, region=region):
+        bpy.ops.mesh.primitive_torus_add(
+            major_radius=0.03, minor_radius=0.01, major_segments=128, minor_segments=48
+        )
+    torus = bpy.context.active_object
+    torus.name = "Draw Test - Hollow Mold"
+    view.view_distance = 0.22
+    area.tag_redraw()
+    yield
+    objects = set(bpy.data.objects)
+    # 0.03 mm at 0.1 metres/unit must extend by 0.0003 Blender units.
+    bpy.context.scene.unit_settings.scale_length = 0.1
+    bpy.context.scene.silicone_casting.surface_cut_margin_mm = 0.03
+    invoke()
+    yield
+    yield from stroke(0.038, 0.038)
+    yield from stroke(0.022, 0.022)
+    event("SPACE")
+    yield
+    preview = next(obj for obj in bpy.data.objects if obj not in objects)
+    assert preview.data.polygons
+    _assert_extension(preview, 0.0003)
+    assert (
+        sum(len(face.vertices) == 4 for face in preview.data.polygons)
+        > len(preview.data.polygons) / 2
+    )
+    assert len(torus.modifiers) == 0
+    event("RET")
+    yield
+    assert len(torus.modifiers) == 1
+    _assert_split(torus)
+    area.spaces.active.show_region_ui = True
+    print("PASS: freehand cancel, curved solid, interior edit, hollow two-loop cut")
+
+
+def main():
+    bpy.context.preferences.use_preferences_save = False
+    bpy.context.preferences.view.show_splash = False
+    steps = _steps()
+    result = Path(tempfile.gettempdir()) / "silcast-draw-gui-result.txt"
+    result.write_text("RUNNING\n")
+
+    def tick():
+        try:
+            next(steps)
+        except StopIteration:
+            result.write_text("PASS\n")
+            return None
+        except Exception:
+            error = traceback.format_exc()
+            print(error)
+            result.write_text(error)
+            return None
+        return 0.03
+
+    bpy.app.timers.register(tick, first_interval=0.5)
+
+
+if __name__ == "__main__":
+    main()

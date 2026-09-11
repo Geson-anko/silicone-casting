@@ -188,7 +188,8 @@ def test_one_modifier_performs_the_solidify_and_manifold_difference(
     invariants = _evaluated_invariants(target)
 
     assert invariants.vertex_count == 16
-    assert invariants.face_count == 12
+    # Internal triangulation may split caps; both components stay genus zero.
+    assert invariants.vertex_count - invariants.edge_count + invariants.face_count == 4
     assert invariants.loose_part_count == 2
     assert invariants.is_watertight
     assert invariants.volume == pytest.approx(8.0 - 4.0 * THICKNESS, abs=1e-6)

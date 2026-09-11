@@ -27,6 +27,8 @@
 
 ## specs
 
+- [自由描画による曲面切断](specs/drawn_surface_cut.md) — 共通のループ入力から自動補間した切断面を生成し、内部の曲がりを編集できる
+
 - [Solidify 機能](specs/solidify.md) — 選択メッシュへの固定名 Solidify モディファイアの付与・更新と、bpy.ops 非依存の適用
 - [体積計測 / サイドバーのセクション分け](specs/volume_measurement.md) — 親パネル + サブパネル 2 つへの再編と、ボタンで選択メッシュの合計体積を計測し mL で表示・クリックでコピーする機能
 - [手入力式シリコーン配合計算表](specs/mixture_calculator.md) — 体積・密度・重量比からA/Bの体積と重量を算出し、行選択・小計・`.blend` 保存に対応

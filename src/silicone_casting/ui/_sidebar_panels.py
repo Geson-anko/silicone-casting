@@ -12,6 +12,8 @@ from ..operators import (
     SILCAST_OT_add_surface_cut,
     SILCAST_OT_apply_solidify,
     SILCAST_OT_copy_value,
+    SILCAST_OT_draw_surface_cut,
+    SILCAST_OT_edit_cutting_surface,
     SILCAST_OT_export_stl,
     SILCAST_OT_inherit_shape,
     SILCAST_OT_measure_volume,
@@ -162,6 +164,11 @@ class SILCAST_PT_processing(bpy.types.Panel):
             SILCAST_OT_add_surface_cut.bl_idname,
             icon="MOD_SOLIDIFY",
         )
+        boolean.separator()
+        boolean.prop(props, "surface_cut_margin")
+        boolean.prop(props, "surface_cut_input_mode", expand=True)
+        boolean.operator(SILCAST_OT_draw_surface_cut.bl_idname, icon="GREASEPENCIL")
+        boolean.operator(SILCAST_OT_edit_cutting_surface.bl_idname, icon="EDITMODE_HLT")
         object_row = layout.row()
         object_row.enabled = (
             context.active_object is not None and context.active_object.type == "MESH"
