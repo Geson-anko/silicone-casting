@@ -86,6 +86,13 @@ def _draw_profile_selector(
     layout: bpy.types.UILayout,
     scene_settings: bpy.types.PropertyGroup,
 ) -> None:
+    exchange = layout.row(align=True)
+    exchange.operator(
+        "silicone_casting.export_recipes", text="Export JSON", icon="EXPORT"
+    ).kind = "COLORS"
+    exchange.operator(
+        "silicone_casting.import_recipes", text="Import JSON", icon="IMPORT"
+    ).kind = "COLORS"
     profiles = layout.box()
     profiles.label(text="1. Choose a Named Profile")
     profile_row = profiles.row()

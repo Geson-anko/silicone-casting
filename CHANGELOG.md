@@ -10,6 +10,7 @@
 
 ### Added
 
+- Mixture Calculator の密度・重量比・全パーツ行と、Coloring の全プロファイルを JSON で export/import。混合表は置換、カラーは既存リストへ追加し、不正ファイルは設定変更前に拒否
 - **Inherit Collection Shape** — コレクション内（子コレクションを含む）のメッシュを Boolean の Collection オペランドで Union した形状を参照する空メッシュを作成
 - Blender Extension としてのパッケージング（`blender_manifest.toml`、Blender 5.1 以上）
 - **Solidify** オペレータ（`silicone_casting.solidify`）— 選択中のメッシュに、アドオン専用の Solidify モディファイアを付与する。既にあれば同じものを更新するので重ね掛けにならない
@@ -24,6 +25,8 @@
 - Windows / macOS / Linux での CI と、タグ push でのリリース自動化
 
 ### Changed
+
+- Coloring の Base Volume 変更（Use Mixture Total を含む）に全染料の滴数を比例させ、配合濃度と結果色を維持
 
 - Solidify / Surface Cut の厚み入力をシーン単位に対応する距離型へ変更し、既存の mm 保存値を維持。Lightness 入力を百分率型へ変更
 
