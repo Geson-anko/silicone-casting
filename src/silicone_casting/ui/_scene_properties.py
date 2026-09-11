@@ -85,6 +85,100 @@ class SiliconeCastingProperties(bpy.types.PropertyGroup):
         default=True,
     )
 
+    key_width_mm: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Width / Diameter (mm)",
+        default=4,
+        min=0.01,
+        precision=3,
+    )
+
+    key_length_mm: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Length (mm)",
+        default=8,
+        min=0.01,
+        precision=3,
+    )
+
+    key_height_mm: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Protrusion (mm)",
+        default=3,
+        min=0.01,
+        precision=3,
+    )
+
+    key_embed_mm: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Root Overlap (mm)",
+        default=1,
+        min=0.01,
+        precision=3,
+    )
+
+    key_clearance_mm: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Clearance per Side (mm)",
+        default=0.15,
+        min=0,
+        precision=3,
+    )
+
+    key_depth_clearance_mm: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Tip Clearance (mm)",
+        default=0.2,
+        min=0,
+        precision=3,
+    )
+
+    key_shape: EnumProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Shape",
+        items=(
+            ("CYLINDER", "Round Dowel", "Cylindrical alignment pin"),
+            ("TAPERED", "Tapered Dowel", "Lead-in taper for easier assembly"),
+            (
+                "RECTANGLE",
+                "Rectangular Key",
+                "Anti-rotation key or elongated tongue and groove",
+            ),
+        ),
+        default="TAPERED",
+    )
+    key_taper: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Tip Reduction",
+        subtype="FACTOR",
+        default=0.2,
+        min=0.0,
+        max=0.9,
+    )
+    key_angle: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Rotation",
+        subtype="ANGLE",
+        default=0.0,
+    )
+    key_align_normal: BoolProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Perpendicular to Face",
+        default=True,
+        description="Align with the nearest face normal; disable to use the 3D cursor Z axis",
+    )
+    key_flip: BoolProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Flip Direction",
+        default=False,
+    )
+    key_mate: PointerProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Socket Half",
+        type=bpy.types.Object,
+        poll=_mesh_object_poll,
+    )
+    key_preview_pin: PointerProperty(  # pyright: ignore[reportInvalidTypeForm]
+        type=bpy.types.Object,
+    )
+    key_preview_socket: PointerProperty(  # pyright: ignore[reportInvalidTypeForm]
+        type=bpy.types.Object,
+    )
+    key_preview_target: PointerProperty(  # pyright: ignore[reportInvalidTypeForm]
+        type=bpy.types.Object,
+    )
+    key_preview_mate: PointerProperty(  # pyright: ignore[reportInvalidTypeForm]
+        type=bpy.types.Object,
+    )
+
     inherit_collection: PointerProperty(  # pyright: ignore[reportInvalidTypeForm]
         name="Collection",
         description="Collection whose meshes are inherited as a Boolean union",

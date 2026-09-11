@@ -24,10 +24,18 @@ from .mixture_parts import (
     SILCAST_OT_remove_mixture_parts,
     SILCAST_OT_select_mixture_part,
 )
+from .registration_keys import (
+    SILCAST_OT_cancel_registration_key,
+    SILCAST_OT_commit_registration_key,
+    SILCAST_OT_preview_registration_key,
+)
 from .separate_loose_parts import SILCAST_OT_separate_loose_parts
 from .solidify import SILCAST_OT_apply_solidify, SILCAST_OT_solidify
 
 __all__ = [
+    "SILCAST_OT_preview_registration_key",
+    "SILCAST_OT_commit_registration_key",
+    "SILCAST_OT_cancel_registration_key",
     "SILCAST_OT_add_boolean",
     "SILCAST_OT_add_color_profile",
     "SILCAST_OT_add_colorant",

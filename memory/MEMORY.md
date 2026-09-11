@@ -27,6 +27,8 @@
 
 ## specs
 
+- [切断面のダボ・噛み合わせ](specs/registration_keys.md) — 3 種の凸／凹、クリアランス、面への配置とプレビュー・確定
+
 - [自由描画による曲面切断](specs/drawn_surface_cut.md) — 共通のループ入力から自動補間した切断面を生成し、内部の曲がりを編集できる
 
 - [Solidify 機能](specs/solidify.md) — 選択メッシュへの固定名 Solidify モディファイアの付与・更新と、bpy.ops 非依存の適用

@@ -187,4 +187,23 @@ class SILCAST_PT_processing(bpy.types.Panel):
             icon="MESH_DATA",
         )
         layout.separator()
+        keys = layout.box()
+        keys.label(text="Registration Keys")
+        keys.label(text="Active half: pin / Cursor: placement")
+        keys.prop(props, "key_mate")
+        keys.prop(props, "key_shape")
+        keys.prop(props, "key_width_mm")
+        if props.key_shape == "RECTANGLE":
+            keys.prop(props, "key_length_mm")
+        if props.key_shape == "TAPERED":
+            keys.prop(props, "key_taper")
+        for name in ("height", "embed", "clearance", "depth_clearance"):
+            keys.prop(props, f"key_{name}_mm")
+        keys.prop(props, "key_align_normal")
+        keys.prop(props, "key_flip")
+        keys.prop(props, "key_angle")
+        keys.operator("silicone_casting.preview_registration_key", icon="HIDE_OFF")
+        row = keys.row(align=True)
+        row.operator("silicone_casting.commit_registration_key", icon="CHECKMARK")
+        row.operator("silicone_casting.cancel_registration_key", icon="X")
         layout.operator(SILCAST_OT_export_stl.bl_idname, icon="EXPORT")

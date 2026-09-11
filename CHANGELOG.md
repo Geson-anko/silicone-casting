@@ -10,6 +10,7 @@
 
 ### Added
 
+- **Registration Keys** — 分割した型に円柱ダボ・先細りダボ・角形キーの凸／凹を配置。mm 寸法、片側クリアランス、穴底の隙間、面法線／3D カーソル方向、回転・反転、配置プレビューと確定・キャンセルに対応
 - **Inherit Collection Shape** — コレクション内（子コレクションを含む）のメッシュを Boolean の Collection オペランドで Union した形状を参照する空メッシュを作成
 - Blender Extension としてのパッケージング（`blender_manifest.toml`、Blender 5.1 以上）
 - **Solidify** オペレータ（`silicone_casting.solidify`）— 選択中のメッシュに、アドオン専用の Solidify モディファイアを付与する。既にあれば同じものを更新するので重ね掛けにならない
