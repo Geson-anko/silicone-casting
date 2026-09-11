@@ -61,9 +61,7 @@ class SiliconeCastingProperties(bpy.types.PropertyGroup):
             part.selected = part_index == index
         state.mixture_selection_anchor = index
 
-    # Deliberately no ``unit="LENGTH"``: a length unit makes Blender display
-    # and accept the value in the scene's ``unit_settings.length_unit``, which
-    # contradicts this property always being expressed in millimetres.
+    # Keep legacy millimetre storage; distance inputs below convert scene units.
     solidify_thickness_mm: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
         name="Thickness (mm)",
         description="Wall thickness in millimetres, regardless of scene units",
@@ -71,6 +69,28 @@ class SiliconeCastingProperties(bpy.types.PropertyGroup):
         min=MIN_THICKNESS_MM,
         soft_max=50.0,
         precision=2,
+    )
+
+    def _get_solidify_thickness(self) -> float:
+        scene = cast(bpy.types.Scene, self.id_data)
+        return mm_to_units(
+            cast(float, getattr(self, "solidify_thickness_mm")),
+            scene.unit_settings.scale_length,
+        )
+
+    def _set_solidify_thickness(self, value: float) -> None:
+        scene = cast(bpy.types.Scene, self.id_data)
+        self.solidify_thickness_mm = value * scene.unit_settings.scale_length * 1000
+
+    solidify_thickness: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Thickness",
+        description="Wall thickness in scene distance units",
+        subtype="DISTANCE",
+        unit="LENGTH",
+        min=0.0,
+        precision=4,
+        get=_get_solidify_thickness,
+        set=_set_solidify_thickness,
     )
 
     solidify_flip: BoolProperty(  # pyright: ignore[reportInvalidTypeForm]
@@ -199,14 +219,35 @@ class SiliconeCastingProperties(bpy.types.PropertyGroup):
         default="EXACT",
     )
 
-    # Deliberately no ``unit="LENGTH"``: this value is always entered in mm,
-    # then converted to Blender units when the modifier is created.
+    # Retain the saved millimetre value for existing files and operators.
     surface_cut_thickness_mm: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
         name="Thickness (mm)",
         description="Surface Cut thickness in millimetres, regardless of scene units",
         default=MIN_SURFACE_CUT_THICKNESS_MM,
         min=MIN_SURFACE_CUT_THICKNESS_MM,
         precision=3,
+    )
+
+    def _get_surface_cut_thickness(self) -> float:
+        scene = cast(bpy.types.Scene, self.id_data)
+        return mm_to_units(
+            cast(float, getattr(self, "surface_cut_thickness_mm")),
+            scene.unit_settings.scale_length,
+        )
+
+    def _set_surface_cut_thickness(self, value: float) -> None:
+        scene = cast(bpy.types.Scene, self.id_data)
+        self.surface_cut_thickness_mm = value * scene.unit_settings.scale_length * 1000
+
+    surface_cut_thickness: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Thickness",
+        description="Surface Cut thickness in scene distance units",
+        subtype="DISTANCE",
+        unit="LENGTH",
+        min=0.0,
+        precision=4,
+        get=_get_surface_cut_thickness,
+        set=_set_surface_cut_thickness,
     )
 
     surface_cut_margin_mm: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]

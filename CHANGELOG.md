@@ -26,6 +26,8 @@
 
 ### Changed
 
+- Solidify / Surface Cut の厚み入力をシーン単位に対応する距離型へ変更し、既存の mm 保存値を維持。Lightness 入力を百分率型へ変更
+
 - 機能と Blender 公開 API を維持したまま内部構造を整理し、オペレータ共通基盤を集約するとともに、配合計算・混色シミュレータ・サイドバーを凝集性に沿って分割
 
 [unreleased]: https://github.com/Geson-anko/silicone-casting/commits/main

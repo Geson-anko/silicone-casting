@@ -137,7 +137,7 @@ class SILCAST_PT_processing(bpy.types.Panel):
         # call; Blender always populates it before invoking draw().
         assert layout is not None
         props = context.scene.silicone_casting
-        layout.prop(props, "solidify_thickness_mm")
+        layout.prop(props, "solidify_thickness")
         row = layout.row()
         row.prop(props, "solidify_flip")
         row.prop(props, "solidify_even_thickness")
@@ -159,7 +159,7 @@ class SILCAST_PT_processing(bpy.types.Panel):
                 text=label,
             )
             button.operation = operation
-        boolean.prop(props, "surface_cut_thickness_mm")
+        boolean.prop(props, "surface_cut_thickness")
         boolean.operator(
             SILCAST_OT_add_surface_cut.bl_idname,
             icon="MOD_SOLIDIFY",
