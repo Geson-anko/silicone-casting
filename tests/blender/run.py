@@ -505,6 +505,18 @@ def check_registration_keys_preview_and_commit() -> None:
         assert world_volume(pin_half, depsgraph) > 8000
         assert 0 < world_volume(socket_half, depsgraph) < 8000
         assert settings.key_preview_pin is None
+        assert bpy.ops.silicone_casting.add_registration_key(
+            location=(5, 0, 0), normal=(0, 0, 1)
+        ) == {"FINISHED"}
+        key = settings.key_active
+        assert key is not None
+        settings.key_width = 3
+        assert bpy.ops.silicone_casting.edit_registration_key() == {"FINISHED"}
+        assert bpy.ops.silicone_casting.move_registration_key(
+            key_name=key.name, location=(5, 3, 0), normal=(0, 0, 1)
+        ) == {"FINISHED"}
+        assert bpy.ops.silicone_casting.delete_registration_key() == {"FINISHED"}
+        assert len(pin_half.modifiers) == len(socket_half.modifiers) == 1
     finally:
         settings.key_mate = None
         for obj in created:

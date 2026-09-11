@@ -189,7 +189,7 @@ class SILCAST_PT_processing(bpy.types.Panel):
         layout.separator()
         keys = layout.box()
         keys.label(text="Registration Keys")
-        keys.label(text="Active half: pin / Cursor: placement")
+        keys.label(text="Active half: pin")
         keys.prop(props, "key_mate")
         keys.prop(props, "key_shape")
         keys.prop(props, "key_width")
@@ -200,10 +200,25 @@ class SILCAST_PT_processing(bpy.types.Panel):
         for name in ("height", "embed", "clearance", "depth_clearance"):
             keys.prop(props, f"key_{name}")
         keys.prop(props, "key_align_normal")
+        if not props.key_align_normal:
+            keys.prop(props, "key_axis", expand=True)
         keys.prop(props, "key_flip")
         keys.prop(props, "key_angle")
-        keys.operator("silicone_casting.preview_registration_key", icon="HIDE_OFF")
         row = keys.row(align=True)
-        row.operator("silicone_casting.commit_registration_key", icon="CHECKMARK")
-        row.operator("silicone_casting.cancel_registration_key", icon="X")
+        row.operator("silicone_casting.start_key_placement", icon="ADD")
+        row.operator(
+            "silicone_casting.stop_key_placement", text="Done", icon="CHECKMARK"
+        )
+        keys.label(text="Click: add / select")
+        keys.label(text="Drag: move / Delete: remove")
+        if props.key_active is not None:
+            keys.label(text=f"Selected: {props.key_active.name}")
+            keys.operator(
+                "silicone_casting.edit_registration_key", text="Update Selected Key"
+            )
+            keys.operator(
+                "silicone_casting.delete_registration_key",
+                text="Delete Selected Key",
+                icon="X",
+            )
         layout.operator(SILCAST_OT_export_stl.bl_idname, icon="EXPORT")

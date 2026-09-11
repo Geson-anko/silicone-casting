@@ -173,6 +173,35 @@ class SILCAST_OT_cancel_registration_key(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def validate_key_modifier(
+    context: bpy.types.Context,
+    target: bpy.types.Object,
+    operand: bpy.types.Object,
+    modifier: bpy.types.BooleanModifier,
+) -> None:
+    """Validate overlap and closed output while preserving modifier order."""
+    modifier.show_viewport = False
+    try:
+        before = world_volume(target, context.evaluated_depsgraph_get())
+        tool_volume = world_volume(operand, context.evaluated_depsgraph_get())
+    finally:
+        modifier.show_viewport = True
+    if before is None or before <= 0 or tool_volume is None:
+        raise ValueError("Mold halves must be closed solids")
+    after = world_volume(target, context.evaluated_depsgraph_get())
+    if after is None or after <= 0:
+        raise ValueError("The key must leave a closed mold half")
+    tolerance = tool_volume * 1e-5
+    change = after - before if modifier.operation == "UNION" else before - after
+    if change <= tolerance or (
+        modifier.operation == "UNION" and change >= tool_volume - tolerance
+    ):
+        raise ValueError(
+            "Key must overlap both halves and protrude from the pin half; "
+            "adjust position or direction"
+        )
+
+
 class SILCAST_OT_commit_registration_key(bpy.types.Operator):
     """Attach the displayed pair as editable Boolean modifiers."""
 
@@ -215,11 +244,6 @@ class SILCAST_OT_commit_registration_key(bpy.types.Operator):
                     raise ValueError(
                         "Both mold halves must be in the current view layer"
                     )
-                depsgraph = context.evaluated_depsgraph_get()
-                before = world_volume(target, depsgraph)
-                tool_volume = world_volume(operand, depsgraph)
-                if before is None or before <= 0 or tool_volume is None:
-                    raise ValueError("Mold halves must be closed solids")
                 modifier = cast(
                     bpy.types.BooleanModifier,
                     target.modifiers.new("Registration Key", "BOOLEAN"),
@@ -228,17 +252,7 @@ class SILCAST_OT_commit_registration_key(bpy.types.Operator):
                 modifier.operation = cast(Literal["UNION", "DIFFERENCE"], operation)
                 modifier.solver = "EXACT"
                 modifier.object = operand
-                after = world_volume(target, context.evaluated_depsgraph_get())
-                if after is None or after <= 0:
-                    raise ValueError("The key must leave a closed mold half")
-                tolerance = tool_volume * 1e-5
-                change = after - before if operation == "UNION" else before - after
-                if change <= tolerance or (
-                    operation == "UNION" and change >= tool_volume - tolerance
-                ):
-                    raise ValueError(
-                        "Key must overlap both halves and protrude from the pin half; adjust position or direction"
-                    )
+                validate_key_modifier(context, target, operand, modifier)
         except (ValueError, RuntimeError) as exc:
             for target, modifier in reversed(created):
                 target.modifiers.remove(modifier)

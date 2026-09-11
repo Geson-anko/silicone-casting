@@ -17,6 +17,19 @@ from .draw_surface_cut import (
 )
 from .export_stl import SILCAST_OT_export_stl
 from .inherit_shape import SILCAST_OT_inherit_shape
+from .key_editing import (
+    SILCAST_OT_add_registration_key,
+    SILCAST_OT_delete_registration_key,
+    SILCAST_OT_edit_registration_key,
+    SILCAST_OT_move_registration_key,
+)
+from .key_placement import (
+    SILCAST_OT_place_key,
+    SILCAST_OT_start_key_placement,
+    SILCAST_OT_stop_key_placement,
+    SILCAST_WST_registration_keys,
+    cancel_key_gesture,
+)
 from .measure_volume import SILCAST_OT_measure_volume
 from .mixture_parts import (
     SILCAST_OT_add_mixture_part,
@@ -34,6 +47,15 @@ from .separate_loose_parts import SILCAST_OT_separate_loose_parts
 from .solidify import SILCAST_OT_apply_solidify, SILCAST_OT_solidify
 
 __all__ = [
+    "SILCAST_OT_add_registration_key",
+    "SILCAST_OT_move_registration_key",
+    "SILCAST_OT_edit_registration_key",
+    "SILCAST_OT_delete_registration_key",
+    "SILCAST_OT_start_key_placement",
+    "SILCAST_OT_stop_key_placement",
+    "SILCAST_OT_place_key",
+    "SILCAST_WST_registration_keys",
+    "cancel_key_gesture",
     "SILCAST_OT_preview_registration_key",
     "SILCAST_OT_commit_registration_key",
     "SILCAST_OT_cancel_registration_key",

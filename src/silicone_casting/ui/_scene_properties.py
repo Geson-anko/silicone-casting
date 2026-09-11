@@ -274,6 +274,16 @@ class SiliconeCastingProperties(bpy.types.PropertyGroup):
         set=_set_key_depth_clearance,
     )
 
+    key_active: PointerProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Selected Key",
+        type=bpy.types.Object,
+    )
+    key_axis: EnumProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Direction",
+        items=(("X", "X", "World X"), ("Y", "Y", "World Y"), ("Z", "Z", "World Z")),
+        default="Z",
+    )
+
     key_shape: EnumProperty(  # pyright: ignore[reportInvalidTypeForm]
         name="Shape",
         items=(
@@ -302,7 +312,7 @@ class SiliconeCastingProperties(bpy.types.PropertyGroup):
     key_align_normal: BoolProperty(  # pyright: ignore[reportInvalidTypeForm]
         name="Perpendicular to Face",
         default=True,
-        description="Align with the nearest face normal; disable to use the 3D cursor Z axis",
+        description="Align with the nearest face normal; disable to use the selected world axis",
     )
     key_flip: BoolProperty(  # pyright: ignore[reportInvalidTypeForm]
         name="Flip Direction",

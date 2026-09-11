@@ -38,9 +38,9 @@ class KeyDimensions:
             raise ValueError("Depth clearance exceeds the tapered tip")
 
 
-def create_key_mesh(
-    name: str, dimensions: KeyDimensions, *, socket: bool = False
-) -> bpy.types.Mesh:
+def key_geometry(
+    dimensions: KeyDimensions, *, socket: bool = False
+) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]:
     """Build a closed key; the socket adds lateral and tip clearance.
 
     Taper starts at the contact plane (Z=0). Below that plane the root
@@ -76,6 +76,14 @@ def create_key_mesh(
             b = ring * count + (i + 1) % count
             faces.append((a, b, b + count, a + count))
     faces.append(tuple(range(2 * count, 3 * count)))
+    return vertices, faces
+
+
+def create_key_mesh(
+    name: str, dimensions: KeyDimensions, *, socket: bool = False
+) -> bpy.types.Mesh:
+    """Allocate the closed geometry as a Blender mesh."""
+    vertices, faces = key_geometry(dimensions, socket=socket)
     mesh = bpy.data.meshes.new(name)
     mesh.from_pydata(vertices, [], faces)
     mesh.update()
