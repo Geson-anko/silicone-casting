@@ -49,6 +49,23 @@ def _update_color_profile(
     update_color_preview_material(cast(ColorProfileValues, profile))
 
 
+def _get_base_volume(profile: bpy.types.PropertyGroup) -> float:
+    """Read the original RNA storage key, including existing blend files."""
+    return float(profile.get("base_volume_ml", 100.0))
+
+
+def _set_base_volume(profile: bpy.types.PropertyGroup, value: float) -> None:
+    """Scale every dye dose with volume to preserve its concentration."""
+    from ..operators._color_adapter import ColorProfileValues
+
+    previous = _get_base_volume(profile)
+    volume = max(value, _MIN_COLORING_VOLUME_ML)
+    profile["base_volume_ml"] = volume
+    state = cast(ColorProfileValues, profile)
+    for colorant in state.colorants:
+        colorant.drops *= volume / previous
+
+
 def _update_colorant(
     colorant: bpy.types.PropertyGroup, _context: bpy.types.Context
 ) -> None:
@@ -295,6 +312,9 @@ class SiliconeCastingColorProfile(bpy.types.PropertyGroup):
 
     base_volume_ml: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
         name="Base Volume (mL)",
+        description="Scale base volume and all dye drops together",
+        get=_get_base_volume,
+        set=_set_base_volume,
         default=100.0,
         min=_MIN_COLORING_VOLUME_ML,
         precision=2,

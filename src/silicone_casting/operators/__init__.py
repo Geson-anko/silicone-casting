@@ -24,10 +24,13 @@ from .mixture_parts import (
     SILCAST_OT_remove_mixture_parts,
     SILCAST_OT_select_mixture_part,
 )
+from .recipe_io import SILCAST_OT_export_recipes, SILCAST_OT_import_recipes
 from .separate_loose_parts import SILCAST_OT_separate_loose_parts
 from .solidify import SILCAST_OT_apply_solidify, SILCAST_OT_solidify
 
 __all__ = [
+    "SILCAST_OT_export_recipes",
+    "SILCAST_OT_import_recipes",
     "SILCAST_OT_add_boolean",
     "SILCAST_OT_add_color_profile",
     "SILCAST_OT_add_colorant",
