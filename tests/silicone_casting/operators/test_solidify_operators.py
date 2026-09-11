@@ -235,6 +235,24 @@ class TestSolidifyOperator:
         # scale_length is stored as a 32-bit float, hence the loose tolerance.
         assert modifier.thickness == pytest.approx(THICKNESS_MM, rel=1e-5)
 
+    @pytest.mark.parametrize("scale", [1.0, 0.001])
+    def test_distance_input_reaches_the_modifier_without_double_conversion(
+        self,
+        add_object: AddObject,
+        settings: bpy.types.PropertyGroup,
+        scene_unit_scale: Callable[[float], None],
+        scale: float,
+    ) -> None:
+        scene_unit_scale(scale)
+        settings.solidify_thickness = 0.002 / scale
+        obj = add_object("Cube")
+
+        bpy.ops.silicone_casting.solidify()
+
+        modifier = find_solidify(obj)
+        assert modifier is not None
+        assert modifier.thickness == pytest.approx(0.002 / scale)
+
     def test_the_wall_grows_outwards_by_default(
         self, add_object: AddObject, settings: bpy.types.PropertyGroup
     ) -> None:
