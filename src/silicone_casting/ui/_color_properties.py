@@ -246,7 +246,8 @@ class SiliconeCastingColorant(bpy.types.PropertyGroup):
     )
 
     calibration_lightness_percent: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
-        name="Lightness (%)",
+        name="Lightness",
+        subtype="PERCENTAGE",
         description=(
             "Dye lightness: 100% is white and lightens other colors, 0% is "
             "black, and intermediate values include colors such as brown"

@@ -122,11 +122,10 @@ class TestSolidifySettings:
         properties = bpy.context.scene.silicone_casting.bl_rna.properties
         assert properties["solidify_even_thickness"].default
 
-    def test_thickness_is_not_declared_as_a_length_property(
+    def test_legacy_thickness_storage_remains_in_millimetres(
         self, registered: None
     ) -> None:
-        # FR-2: unit="LENGTH" would re-display and re-interpret the value
-        # in the scene's length unit, breaking "always entered in mm".
+        # Saved values retain their original unit for existing .blend files.
         properties = bpy.context.scene.silicone_casting.bl_rna.properties
         assert properties["solidify_thickness_mm"].unit == "NONE"
 
@@ -419,20 +418,52 @@ class TestColorProfileSettings:
         settings.color_profiles.clear()
 
 
+@pytest.mark.parametrize(
+    "name", ["solidify_thickness", "surface_cut_thickness", "surface_cut_margin"]
+)
 @pytest.mark.parametrize("scale", [1.0, 0.1, 0.001])
-def test_boundary_distance_preserves_saved_millimetres_across_scene_scales(
-    registered: None, scale: float
+def test_distance_preserves_saved_millimetres_across_scene_scales(
+    registered: None, scale: float, name: str
 ) -> None:
-    scene = bpy.data.scenes.new("Boundary Units")
+    scene = bpy.data.scenes.new("Distance Units")
     try:
         scene.unit_settings.scale_length = scale
         props = scene.silicone_casting
-        props.surface_cut_margin_mm = 0.2
-        assert props.surface_cut_margin == pytest.approx(0.0002 / scale)
-        props.surface_cut_margin = 0.0005 / scale
-        assert props.surface_cut_margin_mm == pytest.approx(0.5)
+        setattr(props, name + "_mm", 0.2)
+        assert getattr(props, name) == pytest.approx(0.0002 / scale)
+        setattr(props, name, 0.0005 / scale)
+        assert getattr(props, name + "_mm") == pytest.approx(0.5)
         scene.unit_settings.scale_length = scale * 2
-        assert props.surface_cut_margin == pytest.approx(0.0005 / (scale * 2))
-        assert props.surface_cut_margin_mm == pytest.approx(0.5)
+        assert getattr(props, name) == pytest.approx(0.0005 / (scale * 2))
+        assert getattr(props, name + "_mm") == pytest.approx(0.5)
+    finally:
+        bpy.data.scenes.remove(scene)
+
+
+@pytest.mark.api_contract
+@pytest.mark.parametrize(
+    "name", ["solidify_thickness", "surface_cut_thickness", "surface_cut_margin"]
+)
+def test_distance_inputs_declare_native_length_units(
+    registered: None, name: str
+) -> None:
+    # Contract pin: Blender uses this metadata for unit-aware input and display.
+    prop = bpy.context.scene.silicone_casting.bl_rna.properties[name]
+    assert prop.subtype == "DISTANCE"
+    assert prop.unit == "LENGTH"
+
+
+@pytest.mark.parametrize(
+    "name,minimum", [("solidify_thickness", 0.001), ("surface_cut_thickness", 0.001)]
+)
+def test_distance_input_keeps_the_physical_minimum(
+    registered: None, name: str, minimum: float
+) -> None:
+    scene = bpy.data.scenes.new("Distance Minimum")
+    try:
+        scene.unit_settings.scale_length = 0.001
+        props = scene.silicone_casting
+        setattr(props, name, 0.0)
+        assert getattr(props, name + "_mm") == pytest.approx(minimum)
     finally:
         bpy.data.scenes.remove(scene)
