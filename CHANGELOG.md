@@ -24,6 +24,10 @@
 - 2 階層のテスト（PyPI `bpy` wheel 上の pytest / 実 Blender へインストールしての統合チェック）と golden mesh 比較の基盤
 - Windows / macOS / Linux での CI と、タグ push でのリリース自動化
 
+### Fixed
+
+- Cutting Surface の最前面表示を面のプレビュー時に解除し、確定後や既存の面の編集時も通常の奥行きで表示
+
 ### Changed
 
 - Coloring の Base Volume 変更（Use Mixture Total を含む）に全染料の滴数を比例させ、配合濃度と結果色を維持
