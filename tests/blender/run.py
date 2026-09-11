@@ -130,6 +130,8 @@ def check_addon_is_enabled() -> None:
         "remove_colorant",
         "copy_mixture_volume_to_coloring",
         "apply_color_material",
+        "export_recipes",
+        "import_recipes",
     ):
         assert (
             name in operators
@@ -364,6 +366,25 @@ def check_mixture_settings_survive_save_and_reload() -> None:
         assert loaded_clear.preview_material != loaded_opaque.preview_material
         assert loaded.color_profile_active_index == 1
         assert loaded_clear.colorant_active_index == -1
+
+        # The first volume edit after reloading must scale saved dye doses.
+        loaded_clear.base_volume_ml *= 2
+        assert abs(loaded_amber.drops - 1.0) <= TOLERANCE
+        recipe_path = str(path.with_suffix(".json"))
+        result = bpy.ops.silicone_casting.export_recipes(
+            filepath=recipe_path, kind="COLORS"
+        )
+        assert result == {"FINISHED"}
+        result = bpy.ops.silicone_casting.import_recipes(
+            filepath=recipe_path, kind="COLORS"
+        )
+        assert result == {"FINISHED"}
+        assert len(loaded.color_profiles) == 4
+        loaded_clear = loaded.color_profiles[0]
+        imported = loaded.color_profiles[2]
+        assert abs(imported.base_volume_ml - loaded_clear.base_volume_ml) <= TOLERANCE
+        assert abs(imported.colorants[0].drops - 1.0) <= TOLERANCE
+        assert imported.preview_material != loaded_clear.preview_material
 
 
 def check_solidify_then_apply_gives_a_double_walled_cube() -> None:

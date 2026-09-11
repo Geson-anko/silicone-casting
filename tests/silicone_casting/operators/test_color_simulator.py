@@ -282,3 +282,32 @@ class TestMaterialApplication:
         assert cube_object.active_material == profile.preview_material
         assert other.active_material == profile.preview_material
         bpy.data.materials.remove(previous)
+
+
+class TestVolumeScaling:
+    def test_volume_scales_enabled_and_disabled_drops_without_changing_appearance(
+        self, settings
+    ):
+        profile = _add_profile(settings)
+        dye = profile.colorants.add()
+        dye.drops = 12.5
+        disabled = profile.colorants.add()
+        disabled.enabled = False
+        disabled.drops = 0.25
+        before = tuple(profile.result_color)
+        profile.base_volume_ml = 250
+        assert [c.drops for c in profile.colorants] == pytest.approx([31.25, 0.625])
+        assert tuple(profile.result_color) == pytest.approx(before)
+        assert tuple(profile.preview_material.diffuse_color[:3]) == pytest.approx(
+            before
+        )
+        profile.base_volume_ml = 50
+        assert [c.drops for c in profile.colorants] == pytest.approx([6.25, 0.125])
+
+    def test_mixture_total_scales_drops_from_existing_saved_volume(self, settings):
+        profile = _add_profile(settings)
+        profile["base_volume_ml"] = 40.0
+        profile.colorants.add().drops = 2.5
+        settings.mixture_parts.add().volume_ml = 10
+        bpy.ops.silicone_casting.copy_mixture_volume_to_coloring()
+        assert profile.colorants[0].drops == pytest.approx(0.625)

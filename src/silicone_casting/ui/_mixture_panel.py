@@ -204,6 +204,13 @@ def draw_mixture_calculator(
     layout: bpy.types.UILayout, props: _MixtureSettings
 ) -> None:
     """Draw the saved settings and wide, manually entered mixture table."""
+    exchange = layout.row(align=True)
+    exchange.operator(
+        "silicone_casting.export_recipes", text="Export JSON", icon="EXPORT"
+    ).kind = "MIXTURE"
+    exchange.operator(
+        "silicone_casting.import_recipes", text="Import JSON", icon="IMPORT"
+    ).kind = "MIXTURE"
     settings = layout.box()
     density = settings.row(align=True)
     density.prop(props, "mixture_use_shared_density")
