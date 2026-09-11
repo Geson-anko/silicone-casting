@@ -419,7 +419,18 @@ class TestColorProfileSettings:
 
 
 @pytest.mark.parametrize(
-    "name", ["solidify_thickness", "surface_cut_thickness", "surface_cut_margin"]
+    "name",
+    [
+        "solidify_thickness",
+        "surface_cut_thickness",
+        "surface_cut_margin",
+        "key_width",
+        "key_length",
+        "key_height",
+        "key_embed",
+        "key_clearance",
+        "key_depth_clearance",
+    ],
 )
 @pytest.mark.parametrize("scale", [1.0, 0.1, 0.001])
 def test_distance_preserves_saved_millimetres_across_scene_scales(
@@ -442,7 +453,18 @@ def test_distance_preserves_saved_millimetres_across_scene_scales(
 
 @pytest.mark.api_contract
 @pytest.mark.parametrize(
-    "name", ["solidify_thickness", "surface_cut_thickness", "surface_cut_margin"]
+    "name",
+    [
+        "solidify_thickness",
+        "surface_cut_thickness",
+        "surface_cut_margin",
+        "key_width",
+        "key_length",
+        "key_height",
+        "key_embed",
+        "key_clearance",
+        "key_depth_clearance",
+    ],
 )
 def test_distance_inputs_declare_native_length_units(
     registered: None, name: str

@@ -334,3 +334,29 @@ def test_rectangle_keeps_cursor_xy_orientation_and_adds_local_angle(halves) -> N
             tuple(expected @ axis), abs=1e-6
         )
     assert mesh_invariants(pin.data).bbox_max == pytest.approx((2, 3, 3))
+
+
+@pytest.mark.parametrize("scale", [1.0, 0.1, 0.001])
+def test_native_distance_inputs_set_preview_dimensions_in_scene_units(halves, scale):
+    scene = bpy.context.scene
+    scene.unit_settings.scale_length = scale
+    p = scene.silicone_casting
+    p.key_shape = "RECTANGLE"
+    p.key_width = 0.004 / scale
+    p.key_length = 0.006 / scale
+    p.key_height = 0.003 / scale
+    p.key_embed = 0.001 / scale
+    p.key_clearance = 0.0002 / scale
+    p.key_depth_clearance = 0.0004 / scale
+
+    bpy.ops.silicone_casting.preview_registration_key()
+
+    pin = mesh_invariants(p.key_preview_pin.data)
+    socket = mesh_invariants(p.key_preview_socket.data)
+    assert pin.bbox_min == pytest.approx(
+        (-0.002 / scale, -0.003 / scale, -0.001 / scale)
+    )
+    assert pin.bbox_max == pytest.approx((0.002 / scale, 0.003 / scale, 0.003 / scale))
+    assert socket.bbox_max == pytest.approx(
+        (0.0022 / scale, 0.0032 / scale, 0.0034 / scale)
+    )

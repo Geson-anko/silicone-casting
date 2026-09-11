@@ -192,13 +192,13 @@ class SILCAST_PT_processing(bpy.types.Panel):
         keys.label(text="Active half: pin / Cursor: placement")
         keys.prop(props, "key_mate")
         keys.prop(props, "key_shape")
-        keys.prop(props, "key_width_mm")
+        keys.prop(props, "key_width")
         if props.key_shape == "RECTANGLE":
-            keys.prop(props, "key_length_mm")
+            keys.prop(props, "key_length")
         if props.key_shape == "TAPERED":
             keys.prop(props, "key_taper")
         for name in ("height", "embed", "clearance", "depth_clearance"):
-            keys.prop(props, f"key_{name}_mm")
+            keys.prop(props, f"key_{name}")
         keys.prop(props, "key_align_normal")
         keys.prop(props, "key_flip")
         keys.prop(props, "key_angle")

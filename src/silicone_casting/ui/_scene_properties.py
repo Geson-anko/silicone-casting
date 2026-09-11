@@ -147,6 +147,133 @@ class SiliconeCastingProperties(bpy.types.PropertyGroup):
         precision=3,
     )
 
+    # Preserve saved millimetres while exposing native scene-distance inputs.
+    def _get_key_width(self) -> float:
+        scene = cast(bpy.types.Scene, self.id_data)
+        return mm_to_units(
+            cast(float, getattr(self, "key_width_mm")),
+            scene.unit_settings.scale_length,
+        )
+
+    def _set_key_width(self, value: float) -> None:
+        scene = cast(bpy.types.Scene, self.id_data)
+        self.key_width_mm = value * scene.unit_settings.scale_length * 1000
+
+    key_width: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Width / Diameter",
+        subtype="DISTANCE",
+        unit="LENGTH",
+        min=0.0,
+        precision=4,
+        get=_get_key_width,
+        set=_set_key_width,
+    )
+
+    def _get_key_length(self) -> float:
+        scene = cast(bpy.types.Scene, self.id_data)
+        return mm_to_units(
+            cast(float, getattr(self, "key_length_mm")),
+            scene.unit_settings.scale_length,
+        )
+
+    def _set_key_length(self, value: float) -> None:
+        scene = cast(bpy.types.Scene, self.id_data)
+        self.key_length_mm = value * scene.unit_settings.scale_length * 1000
+
+    key_length: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Length",
+        subtype="DISTANCE",
+        unit="LENGTH",
+        min=0.0,
+        precision=4,
+        get=_get_key_length,
+        set=_set_key_length,
+    )
+
+    def _get_key_height(self) -> float:
+        scene = cast(bpy.types.Scene, self.id_data)
+        return mm_to_units(
+            cast(float, getattr(self, "key_height_mm")),
+            scene.unit_settings.scale_length,
+        )
+
+    def _set_key_height(self, value: float) -> None:
+        scene = cast(bpy.types.Scene, self.id_data)
+        self.key_height_mm = value * scene.unit_settings.scale_length * 1000
+
+    key_height: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Protrusion",
+        subtype="DISTANCE",
+        unit="LENGTH",
+        min=0.0,
+        precision=4,
+        get=_get_key_height,
+        set=_set_key_height,
+    )
+
+    def _get_key_embed(self) -> float:
+        scene = cast(bpy.types.Scene, self.id_data)
+        return mm_to_units(
+            cast(float, getattr(self, "key_embed_mm")),
+            scene.unit_settings.scale_length,
+        )
+
+    def _set_key_embed(self, value: float) -> None:
+        scene = cast(bpy.types.Scene, self.id_data)
+        self.key_embed_mm = value * scene.unit_settings.scale_length * 1000
+
+    key_embed: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Root Overlap",
+        subtype="DISTANCE",
+        unit="LENGTH",
+        min=0.0,
+        precision=4,
+        get=_get_key_embed,
+        set=_set_key_embed,
+    )
+
+    def _get_key_clearance(self) -> float:
+        scene = cast(bpy.types.Scene, self.id_data)
+        return mm_to_units(
+            cast(float, getattr(self, "key_clearance_mm")),
+            scene.unit_settings.scale_length,
+        )
+
+    def _set_key_clearance(self, value: float) -> None:
+        scene = cast(bpy.types.Scene, self.id_data)
+        self.key_clearance_mm = value * scene.unit_settings.scale_length * 1000
+
+    key_clearance: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Clearance per Side",
+        subtype="DISTANCE",
+        unit="LENGTH",
+        min=0.0,
+        precision=4,
+        get=_get_key_clearance,
+        set=_set_key_clearance,
+    )
+
+    def _get_key_depth_clearance(self) -> float:
+        scene = cast(bpy.types.Scene, self.id_data)
+        return mm_to_units(
+            cast(float, getattr(self, "key_depth_clearance_mm")),
+            scene.unit_settings.scale_length,
+        )
+
+    def _set_key_depth_clearance(self, value: float) -> None:
+        scene = cast(bpy.types.Scene, self.id_data)
+        self.key_depth_clearance_mm = value * scene.unit_settings.scale_length * 1000
+
+    key_depth_clearance: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Tip Clearance",
+        subtype="DISTANCE",
+        unit="LENGTH",
+        min=0.0,
+        precision=4,
+        get=_get_key_depth_clearance,
+        set=_set_key_depth_clearance,
+    )
+
     key_shape: EnumProperty(  # pyright: ignore[reportInvalidTypeForm]
         name="Shape",
         items=(
