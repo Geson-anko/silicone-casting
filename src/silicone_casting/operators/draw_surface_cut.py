@@ -11,6 +11,7 @@ from mathutils.bvhtree import BVHTree
 from ..core import MIN_SURFACE_CUT_THICKNESS_MM, create_surface_cut, mm_to_units
 from ..core.cut_strokes import project_straight_segment, smooth_surface_stroke
 from ..core.drawn_surface import interpolate_cutting_surface, simplify_closed_loop
+from ..core.edge_paths import extend_edge_path
 from ..core.surface_picking import extend_stroke_along_edge, pick_surface_element
 from ._operator import OperatorReturn
 from ._stroke_overlay import draw_snap_hint
@@ -74,6 +75,8 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
     _loops: list[list[Vector]]
     _stroke: list[Vector]
     _history: list[tuple[list[list[Vector]], list[Vector]]]
+    _future: list[tuple[list[list[Vector]], list[Vector]]]
+    _faces: list[tuple[int, ...]]
     _drawing: bool
     _ready: bool
     _last_mouse: tuple[float, float] | None
@@ -104,10 +107,15 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
 
     def _header(self, message: str = "") -> None:
         if not message:
+            shortcuts = (
+                "Loop: Alt-click | Path: Ctrl-click"
+                if self._input_mode == "EDGE"
+                else "Line: Ctrl-click"
+            )
             message = (
                 "Preview: Enter = cut | Backspace = return to drawing | Esc = cancel"
                 if self._ready
-                else f"{len(self._loops)} loops | {self._input_mode.title()}: LMB | Line: Ctrl-click | Smooth: S | Undo: Ctrl-Z | Close: C | Preview: Space | Esc: cancel"
+                else f"{len(self._loops)} loops | {self._input_mode.title()}: LMB | {shortcuts} | Smooth: S | Undo/Redo: Ctrl-Z/Shift-Z | Close: C | Preview: Space | Esc: cancel"
             )
         self._area.header_text_set(message)
         self._area.tag_redraw()
@@ -143,6 +151,9 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         try:
             points = [target.matrix_world @ vertex.co for vertex in mesh.vertices]
             self._vertices = points
+            self._faces = [
+                tuple(cast(Sequence[int], face.vertices)) for face in mesh.polygons
+            ]
             self._edges = []
             for edge in mesh.edges:
                 a, b = cast(Sequence[int], edge.vertices)
@@ -182,6 +193,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         self._preview.hide_render = True
         self._preview.select_set(True)
         self._history = []
+        self._future = []
         self._loops = []
         self._stroke = []
         self._drawing = False
@@ -274,7 +286,9 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         pixels = [self._project(self._vertices[i]) for i in self._hover]
         draw_snap_hint([pixel for pixel in pixels if pixel is not None])
 
-    def _snap_click(self, mouse: Vector) -> None:
+    def _snap_click(
+        self, mouse: Vector, *, loop: bool = False, shortest: bool = False
+    ) -> None:
         self._hover = self._pick(mouse)
         if self._hover is None:
             self._header("Click near a visible vertex or edge")
@@ -282,7 +296,20 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         try:
             if len(self._hover) == 2:
                 a, b = (self._vertices[i] for i in self._hover)
-                stroke = extend_stroke_along_edge(self._stroke, a, b, self._size * 1e-6)
+                if loop or shortest:
+                    stroke = extend_edge_path(
+                        self._stroke,
+                        self._vertices,
+                        self._edges,
+                        self._faces,
+                        (self._hover[0], self._hover[1]),
+                        loop=loop,
+                        tolerance=self._size * 1e-6,
+                    )
+                else:
+                    stroke = extend_stroke_along_edge(
+                        self._stroke, a, b, self._size * 1e-6
+                    )
             else:
                 point = self._vertices[self._hover[0]]
                 if not self._stroke:
@@ -330,6 +357,8 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         except ValueError as error:
             self._header(str(error))
             return
+        if stroke == self._stroke:
+            return
         self._remember()
         self._stroke = stroke
         self._show_strokes()
@@ -356,7 +385,23 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         return True
 
     def _remember(self) -> None:
+        self._future.clear()
         self._history.append(([loop[:] for loop in self._loops], self._stroke[:]))
+
+    def _restore_history(self, *, redo: bool) -> None:
+        source = self._future if redo else self._history
+        destination = self._history if redo else self._future
+        if not source:
+            return
+        destination.append(([loop[:] for loop in self._loops], self._stroke[:]))
+        self._loops, self._stroke = source.pop()
+        self._drawing = False
+        self._last_mouse = None
+        self._hover = None
+        self._ready = False
+        self._preview.vertex_groups.clear()
+        self._show_strokes()
+        self._header()
 
     def _straight_line(self, mouse: Vector) -> None:
         if not self._stroke:
@@ -554,6 +599,13 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         self._sync_margin(context)
         if event.type.startswith("TIMER"):
             return {"PASS_THROUGH"}
+        if (
+            event.value == "PRESS"
+            and (event.ctrl or event.oskey)
+            and event.type in {"Z", "Y"}
+        ):
+            self._restore_history(redo=event.type == "Y" or event.shift)
+            return {"RUNNING_MODAL"}
         if self._over_view_controls(context, event):
             self._drawing = False
             self._last_mouse = None
@@ -637,14 +689,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
                 )
                 return {"FINISHED"}
             return {"RUNNING_MODAL"}
-        if event.type == "Z" and event.ctrl and event.value == "PRESS":
-            self._drawing = False
-            self._last_mouse = None
-            if self._history:
-                self._loops, self._stroke = self._history.pop()
-                self._show_strokes()
-                self._header()
-        elif event.type == "S" and event.value == "PRESS":
+        if event.type == "S" and event.value == "PRESS":
             self._drawing = False
             self._last_mouse = None
             self._smooth()
@@ -660,7 +705,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
             )
             if event.value == "PRESS":
                 if self._input_mode != "FREEHAND":
-                    self._snap_click(mouse)
+                    self._snap_click(mouse, loop=event.alt, shortest=event.ctrl)
                     return {"RUNNING_MODAL"}
                 if event.ctrl:
                     self._drawing = False

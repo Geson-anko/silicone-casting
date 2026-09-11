@@ -96,7 +96,7 @@ def _steps():
                 "RUNNING_MODAL"
             }
 
-    def event(kind, value="PRESS", point=None, *, ctrl=False):
+    def event(kind, value="PRESS", point=None, *, ctrl=False, alt=False, shift=False):
         pixel = (
             location_3d_to_region_2d(region, view, point)
             if point is not None
@@ -105,6 +105,8 @@ def _steps():
         assert pixel is not None
         window.event_simulate(
             ctrl=ctrl,
+            alt=alt,
+            shift=shift,
             type=kind,
             value=value,
             x=round(region.x + pixel.x),
@@ -112,17 +114,108 @@ def _steps():
         )
 
     def stroke(rx, ry):
-        start = Vector((rx, 0, 0))
+        # Avoid placing the initial ray exactly on the sphere tessellation seam.
+        phase = pi / 120
+        start = Vector((rx * cos(phase), ry * sin(phase), 0))
         event("LEFTMOUSE", point=start)
         yield
         for i in range(1, 121):
-            angle = 2 * pi * i / 120
-            event("MOUSEMOVE", "NOTHING", Vector((rx * cos(angle), ry * sin(angle), 0)))
+            angle = phase + 2 * pi * i / 120
+            point = Vector((rx * cos(angle), ry * sin(angle), 0))
+            stroke_mesh = bpy.data.objects.get("Cut Strokes").data
+            count = len(stroke_mesh.vertices)
+            event("MOUSEMOVE", "NOTHING", point)
             yield
+            if len(stroke_mesh.vertices) == count:
+                # Resume a paused stroke near its end after a missed surface hit.
+                event("LEFTMOUSE", "RELEASE", point)
+                yield
+                event("LEFTMOUSE", point=point)
+                yield
         event("LEFTMOUSE", "RELEASE", start)
         yield
         event("C")
         yield
+
+    # Edge-loop and shortest-path clicks use mesh topology, with local undo/redo.
+    props = bpy.context.scene.silicone_casting
+    props.surface_cut_input_mode = "EDGE"
+    ring_edges = [
+        edge
+        for edge in sphere.data.edges
+        if abs(sphere.data.vertices[edge.vertices[0]].co.z - 0.014142) < 0.00001
+        and abs(sphere.data.vertices[edge.vertices[1]].co.z - 0.014142) < 0.00001
+    ]
+    assert len(ring_edges) == 64
+
+    def midpoint(edge):
+        return sum((sphere.data.vertices[i].co for i in edge.vertices), Vector()) / 2
+
+    picked = ring_edges[0]
+    objects_before = set(bpy.data.objects)
+    invoke()
+    yield
+    event("LEFTMOUSE", point=midpoint(picked), alt=True)
+    yield
+    event("LEFTMOUSE", "RELEASE", midpoint(picked))
+    yield
+    preview = next(obj for obj in bpy.data.objects if obj not in objects_before)
+    loop_points = [v.co.copy() for v in preview.data.vertices]
+    assert len(loop_points) == 65 and loop_points[0] == loop_points[-1]
+    event("Z", ctrl=True)
+    yield
+    assert not preview.data.vertices
+    event("Z", ctrl=True, shift=True)
+    yield
+    assert [v.co.copy() for v in preview.data.vertices] == loop_points
+    event("C")
+    yield
+    event("SPACE")
+    yield
+    assert preview.data.polygons
+    event("Z", ctrl=True)
+    yield
+    assert not preview.data.polygons
+    assert [v.co.copy() for v in preview.data.vertices] == loop_points
+    event("Y", ctrl=True)
+    yield
+    assert len(preview.data.vertices) == 64
+    event("ESC")
+    yield
+    invoke()
+    yield
+    event("LEFTMOUSE", point=midpoint(picked))
+    yield
+    event("LEFTMOUSE", "RELEASE", midpoint(picked))
+    yield
+    preview = next(obj for obj in bpy.data.objects if obj not in objects_before)
+    single = [v.co.copy() for v in preview.data.vertices]
+    assert len(single) == 2
+    distant = max(
+        ring_edges, key=lambda edge: (midpoint(edge) - midpoint(picked)).length
+    )
+    event("LEFTMOUSE", point=midpoint(distant), ctrl=True)
+    yield
+    event("LEFTMOUSE", "RELEASE", midpoint(distant))
+    yield
+    path_points = [v.co.copy() for v in preview.data.vertices]
+    assert len(path_points) > 3
+    event("Z", ctrl=True)
+    yield
+    assert [v.co.copy() for v in preview.data.vertices] == single
+    event("Y", ctrl=True)
+    yield
+    assert [v.co.copy() for v in preview.data.vertices] == path_points
+    event("Z", ctrl=True)
+    yield
+    event("BACK_SPACE")
+    yield
+    event("Y", ctrl=True)
+    yield
+    assert not preview.data.vertices
+    event("ESC")
+    yield
+    props.surface_cut_input_mode = "FREEHAND"
 
     # Cancel after actual input, then start a fresh drawing without leaked data.
     objects = set(bpy.data.objects)
