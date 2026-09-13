@@ -6,6 +6,9 @@ import bpy
 
 from ._operator import OperatorReturn
 
+# Shared by both drawing operators so only one can own viewport input.
+active_drawing: bpy.types.Operator | None = None
+
 
 def over_view_controls(
     context: bpy.types.Context,

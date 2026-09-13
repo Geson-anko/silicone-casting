@@ -55,6 +55,7 @@ def _steps(state):
             assert bpy.ops.silicone_casting.draw_air_vents("INVOKE_DEFAULT") == {
                 "RUNNING_MODAL"
             }
+            assert not bpy.ops.silicone_casting.draw_surface_cut.poll()
 
     def event(kind, value="PRESS", point=None, pixel=None, **modifiers):
         if pixel is None:
@@ -85,6 +86,18 @@ def _steps(state):
     assert set(bpy.data.objects) == objects
     assert set(bpy.data.meshes) == meshes
     state.checks.append("empty click and cancel")
+
+    with bpy.context.temp_override(window=window, area=area, region=region):
+        assert bpy.ops.silicone_casting.draw_surface_cut("INVOKE_DEFAULT") == {
+            "RUNNING_MODAL"
+        }
+        assert not bpy.ops.silicone_casting.draw_air_vents.poll()
+    yield
+    event("ESC")
+    yield
+    assert set(bpy.data.objects) == objects
+    assert set(bpy.data.meshes) == meshes
+    state.checks.append("surface cuts and air vents cannot draw simultaneously")
 
     with bpy.context.temp_override(window=window, area=area, region=region):
         bpy.ops.ed.undo_push(message="Before drawing air vents")

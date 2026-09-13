@@ -13,13 +13,13 @@ from ..core.cut_strokes import project_straight_segment, smooth_surface_stroke
 from ..core.drawn_surface import interpolate_cutting_surface, simplify_closed_loop
 from ..core.edge_paths import extend_edge_path
 from ..core.surface_picking import extend_stroke_along_edge, pick_surface_element
+from . import _drawing_navigation
 from ._drawing_navigation import navigate_drawing_view, over_view_controls
 from ._operator import OperatorReturn
 from ._stroke_overlay import draw_snap_hint
 
 _BOUNDARY_GROUP = "Cut Boundary"
 _INTERIOR_GROUP = "Cut Interior"
-_active_drawing: "SILCAST_OT_draw_surface_cut | None" = None
 
 
 def _cutting_surface(target: bpy.types.Object | None) -> bpy.types.Object | None:
@@ -99,7 +99,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
     @override
     def poll(cls, context: bpy.types.Context) -> bool:
         return (
-            _active_drawing is None
+            _drawing_navigation.active_drawing is None
             and context.mode == "OBJECT"
             and context.area is not None
             and context.area.type == "VIEW_3D"
@@ -127,7 +127,6 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         self, context: bpy.types.Context, event: bpy.types.Event
     ) -> OperatorReturn:
         del event
-        global _active_drawing
         target = context.active_object
         area = context.area
         space = context.space_data
@@ -210,7 +209,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         self._draw_handle = bpy.types.SpaceView3D.draw_handler_add(
             self._draw_snap_hint, (), "WINDOW", "POST_PIXEL"
         )
-        _active_drawing = self
+        _drawing_navigation.active_drawing = self
         self._timer = context.window_manager.event_timer_add(0.1, window=context.window)
         context.window_manager.modal_handler_add(self)
         self._header()
@@ -505,8 +504,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         self._header()
 
     def _cleanup(self, *, keep_surface: bool = False) -> None:
-        global _active_drawing
-        _active_drawing = None
+        _drawing_navigation.active_drawing = None
         bpy.types.SpaceView3D.draw_handler_remove(self._draw_handle, "WINDOW")
         self._target.show_wire = self._wire
         self._target.show_all_edges = self._all_edges
@@ -526,14 +524,14 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
     @override
     def cancel(self, context: bpy.types.Context) -> None:
         del context
-        if _active_drawing is self:
+        if _drawing_navigation.active_drawing is self:
             self._cleanup()
 
     @override
     def modal(
         self, context: bpy.types.Context, event: bpy.types.Event
     ) -> OperatorReturn:
-        if _active_drawing is not self:
+        if _drawing_navigation.active_drawing is not self:
             return {"CANCELLED"}
         try:
             return self._modal(context, event)
@@ -668,8 +666,9 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
 
 def cancel_surface_drawing() -> None:
     """Remove temporary geometry when the extension is disabled mid-stroke."""
-    if _active_drawing is not None:
-        _active_drawing.cancel(bpy.context)
+    active = _drawing_navigation.active_drawing
+    if isinstance(active, SILCAST_OT_draw_surface_cut):
+        active.cancel(bpy.context)
 
 
 class SILCAST_OT_edit_cutting_surface(bpy.types.Operator):
@@ -684,7 +683,7 @@ class SILCAST_OT_edit_cutting_surface(bpy.types.Operator):
     @override
     def poll(cls, context: bpy.types.Context) -> bool:
         return (
-            _active_drawing is None
+            _drawing_navigation.active_drawing is None
             and context.mode == "OBJECT"
             and _cutting_surface(context.active_object) is not None
         )

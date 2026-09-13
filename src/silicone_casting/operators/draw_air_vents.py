@@ -14,10 +14,9 @@ from ..core.air_vents import (
     simplify_vent_path,
     smooth_vent_path,
 )
+from . import _drawing_navigation
 from ._drawing_navigation import navigate_drawing_view, over_view_controls
 from ._operator import OperatorReturn
-
-_active_drawing: "SILCAST_OT_draw_air_vents | None" = None
 
 
 class SILCAST_OT_draw_air_vents(bpy.types.Operator):
@@ -54,7 +53,7 @@ class SILCAST_OT_draw_air_vents(bpy.types.Operator):
     def poll(cls, context: bpy.types.Context) -> bool:
         targets = [obj for obj in context.selected_objects or () if obj.type == "MESH"]
         return (
-            _active_drawing is None
+            _drawing_navigation.active_drawing is None
             and context.mode == "OBJECT"
             and context.area is not None
             and context.area.type == "VIEW_3D"
@@ -77,7 +76,6 @@ class SILCAST_OT_draw_air_vents(bpy.types.Operator):
         self, context: bpy.types.Context, event: bpy.types.Event
     ) -> OperatorReturn:
         del event
-        global _active_drawing
         area, space = context.area, context.space_data
         if (
             area is None
@@ -130,7 +128,7 @@ class SILCAST_OT_draw_air_vents(bpy.types.Operator):
         self._preview.hide_select = True
         self._timer = context.window_manager.event_timer_add(0.1, window=context.window)
         self._running = True
-        _active_drawing = self
+        _drawing_navigation.active_drawing = self
         context.window_manager.modal_handler_add(self)
         self._header()
         return {"RUNNING_MODAL"}
@@ -191,11 +189,10 @@ class SILCAST_OT_draw_air_vents(bpy.types.Operator):
         self._header(message)
 
     def _cleanup(self, *, keep_cutter: bool = False) -> None:
-        global _active_drawing
         if not self._running:
             return
         self._running = False
-        _active_drawing = None
+        _drawing_navigation.active_drawing = None
         bpy.context.window_manager.event_timer_remove(self._timer)
         self._area.header_text_set(None)
         if not keep_cutter:
@@ -323,5 +320,6 @@ class SILCAST_OT_draw_air_vents(bpy.types.Operator):
 
 def cancel_air_vent_drawing() -> None:
     """Remove unfinished vents when the extension is disabled."""
-    if _active_drawing is not None:
-        _active_drawing.cancel(bpy.context)
+    active = _drawing_navigation.active_drawing
+    if isinstance(active, SILCAST_OT_draw_air_vents):
+        active.cancel(bpy.context)
