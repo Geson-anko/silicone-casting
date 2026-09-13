@@ -34,4 +34,8 @@
 
 - 機能と Blender 公開 API を維持したまま内部構造を整理し、オペレータ共通基盤を集約するとともに、配合計算・混色シミュレータ・サイドバーを凝集性に沿って分割
 
+### Fixed
+
+- Separate Loose Parts で、オブジェクト側に割り当てたマテリアルと空の材質枠を分離後も保持
+
 [unreleased]: https://github.com/Geson-anko/silicone-casting/commits/main
