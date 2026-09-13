@@ -36,6 +36,7 @@
 
 ### Fixed
 
+- ダボの編集・移動の検証後に、無効化していた Boolean モディファイアが勝手に有効になる問題を修正。失敗時にも元の表示状態を保持
 - Separate Loose Parts で、オブジェクト側に割り当てたマテリアルと空の材質枠を分離後も保持
 
 [unreleased]: https://github.com/Geson-anko/silicone-casting/commits/main

@@ -180,26 +180,28 @@ def validate_key_modifier(
     modifier: bpy.types.BooleanModifier,
 ) -> None:
     """Validate overlap and closed output while preserving modifier order."""
-    modifier.show_viewport = False
+    was_visible = modifier.show_viewport
     try:
+        modifier.show_viewport = False
         before = world_volume(target, context.evaluated_depsgraph_get())
         tool_volume = world_volume(operand, context.evaluated_depsgraph_get())
-    finally:
         modifier.show_viewport = True
-    if before is None or before <= 0 or tool_volume is None:
-        raise ValueError("Mold halves must be closed solids")
-    after = world_volume(target, context.evaluated_depsgraph_get())
-    if after is None or after <= 0:
-        raise ValueError("The key must leave a closed mold half")
-    tolerance = tool_volume * 1e-5
-    change = after - before if modifier.operation == "UNION" else before - after
-    if change <= tolerance or (
-        modifier.operation == "UNION" and change >= tool_volume - tolerance
-    ):
-        raise ValueError(
-            "Key must overlap both halves and protrude from the pin half; "
-            "adjust position or direction"
-        )
+        if before is None or before <= 0 or tool_volume is None:
+            raise ValueError("Mold halves must be closed solids")
+        after = world_volume(target, context.evaluated_depsgraph_get())
+        if after is None or after <= 0:
+            raise ValueError("The key must leave a closed mold half")
+        tolerance = tool_volume * 1e-5
+        change = after - before if modifier.operation == "UNION" else before - after
+        if change <= tolerance or (
+            modifier.operation == "UNION" and change >= tool_volume - tolerance
+        ):
+            raise ValueError(
+                "Key must overlap both halves and protrude from the pin half; "
+                "adjust position or direction"
+            )
+    finally:
+        modifier.show_viewport = was_visible
 
 
 class SILCAST_OT_commit_registration_key(bpy.types.Operator):

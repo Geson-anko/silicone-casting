@@ -159,6 +159,24 @@ def test_edit_updates_selected_pair_dimensions_at_the_same_contact(halves) -> No
     assert (len(bpy.data.objects), len(bpy.data.meshes)) == before_count
 
 
+@pytest.mark.parametrize("visibility", [(False, True), (True, False), (False, False)])
+def test_editing_a_disabled_key_preserves_each_modifier_visibility(
+    halves, visibility
+) -> None:
+    pin = _add()
+    socket = key_socket(pin)
+    male_modifier = halves[0].modifiers[0]
+    female_modifier = halves[1].modifiers[0]
+    male_modifier.show_viewport, female_modifier.show_viewport = visibility
+    bpy.context.scene.silicone_casting.key_width_mm = 6
+
+    assert bpy.ops.silicone_casting.edit_registration_key() == {"FINISHED"}
+
+    assert (male_modifier.show_viewport, female_modifier.show_viewport) == visibility
+    assert max(vertex.co.x for vertex in pin.data.vertices) == pytest.approx(3)
+    assert max(vertex.co.x for vertex in socket.data.vertices) == pytest.approx(3.2)
+
+
 def test_editing_and_deleting_one_pair_does_not_modify_a_second_pair(halves) -> None:
     first = _add(location=(-4, 0, 0))
     bpy.context.view_layer.objects.active = halves[0]
@@ -215,11 +233,14 @@ def test_renamed_objects_keep_their_pair_and_edit_after_parent_motion(halves) ->
 
 
 @pytest.mark.parametrize("operation", ["move", "edit"])
+@pytest.mark.parametrize("visible", [False, True])
 def test_invalid_move_or_edit_restores_both_helpers_and_modifiers(
-    halves, operation
+    halves, operation, visible
 ) -> None:
     pin = _add()
     socket = key_socket(pin)
+    halves[0].modifiers[0].show_viewport = visible
+    halves[1].modifiers[0].show_viewport = visible
     before = (mesh_data(pin.data), mesh_data(socket.data))
     matrices = (pin.matrix_world.copy(), socket.matrix_world.copy())
     counts = (len(bpy.data.objects), len(bpy.data.meshes))
@@ -239,6 +260,8 @@ def test_invalid_move_or_edit_restores_both_helpers_and_modifiers(
     assert (pin.matrix_world, socket.matrix_world) == matrices
     assert (len(bpy.data.objects), len(bpy.data.meshes)) == counts
     assert len(halves[0].modifiers) == len(halves[1].modifiers) == 1
+    assert halves[0].modifiers[0].show_viewport == visible
+    assert halves[1].modifiers[0].show_viewport == visible
     assert pin.hide_get() and socket.hide_get()
 
 
