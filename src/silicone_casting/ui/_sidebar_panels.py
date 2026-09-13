@@ -12,6 +12,7 @@ from ..operators import (
     SILCAST_OT_add_surface_cut,
     SILCAST_OT_apply_solidify,
     SILCAST_OT_copy_value,
+    SILCAST_OT_draw_air_vents,
     SILCAST_OT_draw_surface_cut,
     SILCAST_OT_edit_cutting_surface,
     SILCAST_OT_export_stl,
@@ -187,6 +188,13 @@ class SILCAST_PT_processing(bpy.types.Panel):
             cutting.operator(
                 SILCAST_OT_edit_cutting_surface.bl_idname, icon="EDITMODE_HLT"
             )
+
+        vents = _processing_section(layout, "air_vents", "Air Vents")
+        if vents is not None:
+            vents.prop(props, "air_vent_diameter")
+            vents.operator(SILCAST_OT_draw_air_vents.bl_idname, icon="GREASEPENCIL")
+            vents.label(text="First face sets the plane")
+            vents.label(text="Drag to draw / Enter to cut")
 
         inherit = _processing_section(layout, "inherit_shape", "Inherit Shape")
         if inherit is not None:

@@ -1,7 +1,7 @@
 """Draw closed surface strokes and turn their interpolated patch into a cut."""
 
 from collections.abc import Sequence
-from typing import Literal, cast, override
+from typing import cast, override
 
 import bpy
 from bpy_extras import view3d_utils
@@ -13,6 +13,7 @@ from ..core.cut_strokes import project_straight_segment, smooth_surface_stroke
 from ..core.drawn_surface import interpolate_cutting_surface, simplify_closed_loop
 from ..core.edge_paths import extend_edge_path
 from ..core.surface_picking import extend_stroke_along_edge, pick_surface_element
+from ._drawing_navigation import navigate_drawing_view, over_view_controls
 from ._operator import OperatorReturn
 from ._stroke_overlay import draw_snap_hint
 
@@ -556,52 +557,6 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
             self._show_strokes()
             self._build_preview()
 
-    def _over_view_controls(
-        self, context: bpy.types.Context, event: bpy.types.Event
-    ) -> bool:
-        x, y = event.mouse_x, event.mouse_y
-        region = self._region
-        if not (
-            region.x <= x < region.x + region.width
-            and region.y <= y < region.y + region.height
-        ):
-            return True
-        right, top = region.x + region.width, region.y + region.height
-        for other in self._area.regions:
-            if other.type == "WINDOW" or other.width <= 1 or other.height <= 1:
-                continue
-            if (
-                other.x <= x < other.x + other.width
-                and other.y <= y < other.y + other.height
-            ):
-                return True
-            if other.type == "UI":
-                right = min(right, other.x)
-            elif other.type in {"HEADER", "TOOL_HEADER"} and other.y > region.y:
-                top = min(top, other.y)
-        space = self._area.spaces.active
-        assert isinstance(space, bpy.types.SpaceView3D)
-        if not (space.show_gizmo and space.show_gizmo_navigate):
-            return False
-        preferences = context.preferences
-        assert preferences is not None
-        scale = preferences.system.ui_scale
-        view = preferences.view
-        # Blender anchors navigation controls to the visible region's upper
-        # right corner, outside the sidebar (view3d_gizmo_navigate.cc).
-        size = view.gizmo_size_navigate_v3d
-        if view.mini_axis_type == "GIZMO":
-            if right - (size + 20) * scale <= x and top - (size + 20) * scale <= y:
-                return True
-            offset = (10 + size / 2) * 2.2
-        else:
-            offset = 22.5
-        return bool(
-            view.show_gizmo
-            and right - 40 * scale <= x
-            and top - (offset + 140) * scale <= y
-        )
-
     def _modal(
         self, context: bpy.types.Context, event: bpy.types.Event
     ) -> OperatorReturn:
@@ -616,59 +571,18 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         ):
             self._restore_history(redo=event.type == "Y" or event.shift)
             return {"RUNNING_MODAL"}
-        if self._over_view_controls(context, event):
+        if over_view_controls(context, event, self._area, self._region):
             self._drawing = False
             self._last_mouse = None
             return {"PASS_THROUGH"}
         if event.type == "ESC" and event.value == "PRESS":
             self._cleanup()
             return {"CANCELLED"}
-        if event.type in {"N", "T"} and event.value == "PRESS":
-            space = self._area.spaces.active
-            assert isinstance(space, bpy.types.SpaceView3D)
-            if event.type == "N":
-                space.show_region_ui = not space.show_region_ui
-            else:
-                space.show_region_toolbar = not space.show_region_toolbar
-            return {"RUNNING_MODAL"}
-        axis = {"NUMPAD_1": "FRONT", "NUMPAD_3": "RIGHT", "NUMPAD_7": "TOP"}.get(
-            event.type
-        )
-        if axis is None:
-            preferences = context.preferences
-            if preferences is not None and preferences.inputs.use_emulate_numpad:
-                axis = {"ONE": "FRONT", "THREE": "RIGHT", "SEVEN": "TOP"}.get(
-                    event.type
-                )
-        if axis is not None and event.value == "PRESS":
+        navigation = navigate_drawing_view(context, event, self._area, self._region)
+        if navigation is not None:
             self._drawing = False
             self._last_mouse = None
-            if event.ctrl:
-                axis = {"FRONT": "BACK", "RIGHT": "LEFT", "TOP": "BOTTOM"}[axis]
-            with context.temp_override(  # pyright: ignore[reportUnknownMemberType]
-                area=self._area, region=self._region
-            ):
-                bpy.ops.view3d.view_axis(
-                    type=cast(
-                        Literal["LEFT", "RIGHT", "BOTTOM", "TOP", "FRONT", "BACK"], axis
-                    ),
-                    align_active=event.shift,
-                )
-            return {"RUNNING_MODAL"}
-        if event.type in {
-            "MIDDLEMOUSE",
-            "WHEELUPMOUSE",
-            "WHEELDOWNMOUSE",
-            "TRACKPADPAN",
-            "TRACKPADZOOM",
-            "NDOF_MOTION",
-            "ACCENT_GRAVE",
-            "N",
-            "T",
-        } or (event.type.startswith("NUMPAD") and event.type != "NUMPAD_ENTER"):
-            self._drawing = False
-            self._last_mouse = None
-            return {"PASS_THROUGH"}
+            return navigation
         if event.type == "BACK_SPACE" and event.value == "PRESS":
             self._drawing = False
             if self._ready:
