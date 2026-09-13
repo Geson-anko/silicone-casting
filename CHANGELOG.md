@@ -29,6 +29,8 @@
 
 ### Changed
 
+- 型エイリアスを `type` 文へ統一し、配合・混色・体積・ダボの生成処理をクラスへ集約。曲面補間、切断ノード構築、描画入力、UI の責務を分割し、既存の公開関数と Blender の操作・保存形式を維持
+
 - Extension の配布情報に、STL / JSON の入出力と値コピーに使う files / clipboard の使用目的を明記
 
 - Processing の設定を Solidify / Boolean / Surface Cut / Inherit Shape / Registration Keys ごとに折りたたみ、分離と STL 出力へアクセスしやすい配置に整理
