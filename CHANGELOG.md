@@ -28,6 +28,8 @@
 
 ### Changed
 
+- Processing の設定を Solidify / Boolean / Surface Cut / Inherit Shape / Registration Keys ごとに折りたたみ、分離と STL 出力へアクセスしやすい配置に整理
+
 - Coloring の Base Volume 変更（Use Mixture Total を含む）に全染料の滴数を比例させ、配合濃度と結果色を維持
 
 - Solidify / Surface Cut の厚み入力をシーン単位に対応する距離型へ変更し、既存の mm 保存値を維持。Lightness 入力を百分率型へ変更
