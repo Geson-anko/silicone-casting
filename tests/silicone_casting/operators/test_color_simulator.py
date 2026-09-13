@@ -145,15 +145,18 @@ class TestColorants:
             abs=1e-6,
         )
 
+    @pytest.mark.parametrize(
+        "invalid", ["not-a-color", "#-10000", "#+10000", "#0 0 00", "#１２３４５６"]
+    )
     def test_invalid_hex_input_keeps_the_previous_color(
-        self, settings: bpy.types.PropertyGroup
+        self, settings: bpy.types.PropertyGroup, invalid: str
     ) -> None:
         profile = _add_profile(settings)
         bpy.ops.silicone_casting.add_colorant()
         colorant = profile.colorants[0]
         before = tuple(colorant.calibration_color)
 
-        colorant.calibration_hex = "not-a-color"
+        colorant.calibration_hex = invalid
 
         assert tuple(colorant.calibration_color) == pytest.approx(before)
         assert colorant.calibration_hex == "#FF0000"
