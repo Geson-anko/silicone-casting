@@ -28,6 +28,8 @@
 
 ### Changed
 
+- Extension の配布情報に、STL / JSON の入出力と値コピーに使う files / clipboard の使用目的を明記
+
 - Processing の設定を Solidify / Boolean / Surface Cut / Inherit Shape / Registration Keys ごとに折りたたみ、分離と STL 出力へアクセスしやすい配置に整理
 
 - Coloring の Base Volume 変更（Use Mixture Total を含む）に全染料の滴数を比例させ、配合濃度と結果色を維持
