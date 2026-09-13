@@ -91,6 +91,14 @@ def _validate(value: object, rule: _Rule, location: str) -> None:
             raise ValueError(f"{location}: number out of range")
     elif type(value) is not rule:
         raise ValueError(f"{location}: invalid value type")
+    elif rule is str:
+        text = cast(str, value)
+        if "\x00" in text:
+            raise ValueError(f"{location}: embedded null character")
+        try:
+            text.encode("utf-8")
+        except UnicodeEncodeError as error:
+            raise ValueError(f"{location}: invalid Unicode text") from error
 
 
 def _snapshot(source: object, schema: dict[str, _Rule]) -> dict[str, object]:
