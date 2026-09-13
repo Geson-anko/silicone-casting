@@ -812,6 +812,28 @@ def check_export_stl_uses_the_fixed_settings() -> None:
     assert modifier.name in selected.modifiers, "export applied the source modifier"
 
 
+def check_export_stl_preserves_physical_size_with_custom_scene_units() -> None:
+    """A 20 mm cube must stay 20 mm even when distance labels are disabled."""
+    _deselect_everything()
+    bpy.ops.mesh.primitive_cube_add(size=20.0)
+    units = bpy.context.scene.unit_settings
+    previous = units.system, units.scale_length
+    try:
+        units.system = "NONE"
+        units.scale_length = 0.001
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "20mm.stl"
+            result = bpy.ops.silicone_casting.export_stl(filepath=str(path))
+            assert result == {"FINISHED"}, f"export_stl returned {result}"
+            vertices = _binary_stl_vertices(path)
+        for axis in range(3):
+            coordinates = [vertex[axis] for vertex in vertices]
+            assert abs(min(coordinates) + 10.0) <= STL_TOLERANCE
+            assert abs(max(coordinates) - 10.0) <= STL_TOLERANCE
+    finally:
+        units.system, units.scale_length = previous
+
+
 CHECKS = (
     check_addon_is_enabled,
     check_scene_properties,
@@ -826,6 +848,7 @@ CHECKS = (
     check_an_open_mesh_clears_the_stored_measurement,
     check_copying_a_value_finishes,
     check_export_stl_uses_the_fixed_settings,
+    check_export_stl_preserves_physical_size_with_custom_scene_units,
     # This opens a saved .blend, so it must stay last.
     check_mixture_settings_survive_save_and_reload,
 )

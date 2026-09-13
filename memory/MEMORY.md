@@ -37,7 +37,7 @@
 - [体積計測 / サイドバーのセクション分け](specs/volume_measurement.md) — 親パネル + サブパネル 2 つへの再編と、ボタンで選択メッシュの合計体積を計測し mL で表示・クリックでコピーする機能
 - [手入力式シリコーン配合計算表](specs/mixture_calculator.md) — 体積・密度・重量比からA/Bの体積と重量を算出し、行選択・小計・`.blend` 保存に対応
 - [シリコーン混色シミュレータ](specs/color_mixing_simulator.md) — 染料別の滴/mL校正による混色、名前付きプロファイル、結果色表示と選択物への適用
-- [STL 出力機能](specs/stl_export.md) — 選択物のみ・モディファイア適用・1000 倍を固定し、オブジェクト名を既定名にする保存フロー
+- [STL 出力機能](specs/stl_export.md) — 選択物のみ・モディファイア適用・mm への換算で、オブジェクト名を既定名にする保存フロー
 - [Boolean モディファイア追加機能](specs/boolean_modifier.md) — アクティブメッシュへ指定した Operand・Operation・Solver の Boolean モディファイアを追加する
 - [ソースエントロピー低減リファクタリング](specs/source_entropy_refactoring.md) — 機能・公開契約を維持したオペレータ共通基盤と配合・混色・サイドバーの責務分割
 
