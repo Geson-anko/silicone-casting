@@ -21,6 +21,7 @@ from .operators import (
     SILCAST_OT_copy_mixture_volume_to_coloring,
     SILCAST_OT_copy_value,
     SILCAST_OT_delete_registration_key,
+    SILCAST_OT_draw_air_vents,
     SILCAST_OT_draw_surface_cut,
     SILCAST_OT_edit_cutting_surface,
     SILCAST_OT_edit_registration_key,
@@ -42,6 +43,7 @@ from .operators import (
     SILCAST_OT_start_key_placement,
     SILCAST_OT_stop_key_placement,
     SILCAST_WST_registration_keys,
+    cancel_air_vent_drawing,
     cancel_key_gesture,
     cancel_surface_drawing,
 )
@@ -84,6 +86,7 @@ _CLASSES = (
     SILCAST_OT_add_boolean,
     SILCAST_OT_add_surface_cut,
     SILCAST_OT_draw_surface_cut,
+    SILCAST_OT_draw_air_vents,
     SILCAST_OT_edit_cutting_surface,
     SILCAST_OT_solidify,
     SILCAST_OT_apply_solidify,
@@ -155,6 +158,7 @@ def unregister() -> None:
     cancel_key_gesture()
     bpy.utils.unregister_tool(SILCAST_WST_registration_keys)
     cancel_surface_drawing()
+    cancel_air_vent_drawing()
     if _reset_transient_selection_state in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_reset_transient_selection_state)
     delattr(bpy.types.Scene, _SCENE_ATTR)

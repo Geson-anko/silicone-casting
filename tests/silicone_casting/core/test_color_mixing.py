@@ -217,7 +217,23 @@ def test_hex_color_input_round_trips_through_scene_linear_rgb(hex_color: str) ->
     assert format_hex_color(parsed) == f"#{hex_color.removeprefix('#').upper()}"
 
 
-@pytest.mark.parametrize("invalid", ["", "#12345", "#GG0000", "#11223344"])
+def test_hex_color_input_accepts_surrounding_whitespace() -> None:
+    assert format_hex_color(parse_hex_color(" \t#804000\n")) == "#804000"
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        "",
+        "#12345",
+        "#GG0000",
+        "#11223344",
+        "#-10000",
+        "#+10000",
+        "#0 0 00",
+        "#１２３４５６",
+    ],
+)
 def test_invalid_hex_color_input_is_rejected(invalid: str) -> None:
     with pytest.raises(ValueError, match="RRGGBB"):
         parse_hex_color(invalid)

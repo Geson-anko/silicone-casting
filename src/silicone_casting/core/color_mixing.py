@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from colorsys import hls_to_rgb, rgb_to_hls
 from dataclasses import dataclass
 from math import fsum
+from string import hexdigits
 
 from ._spectral import mix_spectral_reflectance
 
@@ -161,12 +162,9 @@ def format_hex_color(color: RGB) -> str:
 def parse_hex_color(value: str) -> RGB:
     """Parse ``#RRGGBB`` sRGB text into a scene-linear RGB color."""
     digits = value.strip().removeprefix("#")
-    if len(digits) != 6:
+    if len(digits) != 6 or any(character not in hexdigits for character in digits):
         raise ValueError("Hex color must use the #RRGGBB format")
-    try:
-        channels = tuple(int(digits[index : index + 2], 16) for index in (0, 2, 4))
-    except ValueError as exc:
-        raise ValueError("Hex color must use the #RRGGBB format") from exc
+    channels = tuple(int(digits[index : index + 2], 16) for index in (0, 2, 4))
     return (
         _srgb_channel_to_linear(channels[0] / 255.0),
         _srgb_channel_to_linear(channels[1] / 255.0),

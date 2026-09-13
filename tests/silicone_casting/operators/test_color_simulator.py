@@ -145,15 +145,18 @@ class TestColorants:
             abs=1e-6,
         )
 
+    @pytest.mark.parametrize(
+        "invalid", ["not-a-color", "#-10000", "#+10000", "#0 0 00", "#１２３４５６"]
+    )
     def test_invalid_hex_input_keeps_the_previous_color(
-        self, settings: bpy.types.PropertyGroup
+        self, settings: bpy.types.PropertyGroup, invalid: str
     ) -> None:
         profile = _add_profile(settings)
         bpy.ops.silicone_casting.add_colorant()
         colorant = profile.colorants[0]
         before = tuple(colorant.calibration_color)
 
-        colorant.calibration_hex = "not-a-color"
+        colorant.calibration_hex = invalid
 
         assert tuple(colorant.calibration_color) == pytest.approx(before)
         assert colorant.calibration_hex == "#FF0000"
@@ -282,6 +285,32 @@ class TestMaterialApplication:
         assert cube_object.active_material == profile.preview_material
         assert other.active_material == profile.preview_material
         bpy.data.materials.remove(previous)
+
+
+@pytest.mark.parametrize("active_index", [0, 1])
+def test_applying_color_uses_the_active_object_linked_slot(
+    settings, cube_object, make_object, active_index
+) -> None:
+    previous = _add_profile(settings).preview_material
+    profile = _add_profile(settings)
+    cube_object.data.materials.append(previous)
+    cube_object.data.materials.append(previous)
+    cube_object.active_material_index = active_index
+    cube_object.material_slots[active_index].link = "OBJECT"
+    cube_object.material_slots[active_index].material = previous
+    linked = make_object(cube_object.data, "Unselected Linked Mold")
+    for obj in bpy.context.selected_objects:
+        obj.select_set(False)
+    cube_object.select_set(True)
+    bpy.context.view_layer.objects.active = cube_object
+
+    assert bpy.ops.silicone_casting.apply_color_material() == {"FINISHED"}
+
+    assert cube_object.active_material == profile.preview_material
+    assert cube_object.material_slots[active_index].link == "OBJECT"
+    assert cube_object.material_slots[1 - active_index].material == previous
+    assert all(slot.material == previous for slot in linked.material_slots)
+    assert list(cube_object.data.materials) == [previous, previous]
 
 
 class TestVolumeScaling:

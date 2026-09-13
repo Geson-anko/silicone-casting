@@ -34,7 +34,7 @@ class SILCAST_OT_export_stl(bpy.types.Operator):
     bl_idname = "silicone_casting.export_stl"
     bl_label = "Export STL"
     bl_description = (
-        "Export only the selected meshes with modifiers applied and scale 1000"
+        "Export only the selected meshes with modifiers applied, in millimetres"
     )
 
     filepath: StringProperty(  # pyright: ignore[reportInvalidTypeForm]
@@ -67,6 +67,16 @@ class SILCAST_OT_export_stl(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
     @override
+    def check(self, context: bpy.types.Context) -> bool:
+        # The file browser must check the path that execute will actually write.
+        filepath = cast(str, self.filepath)  # pyright: ignore[reportUnknownMemberType]
+        normalized = bpy.path.ensure_ext(filepath, _STL_EXTENSION)
+        if os.path.basename(filepath) and normalized != filepath:
+            self.filepath = normalized
+            return True
+        return False
+
+    @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
         # The user can change the selection or mode while the file browser is
         # open, so validate the context again when they confirm the path.
@@ -87,7 +97,11 @@ class SILCAST_OT_export_stl(bpy.types.Operator):
             filepath=filepath,
             export_selected_objects=True,
             apply_modifiers=True,
-            global_scale=_EXPORT_SCALE,
+            # Use the same metres-per-unit conversion as thickness and volume.
+            # Blender ignores scale_length when its unit system is NONE, so
+            # perform the conversion here and disable the exporter's own one.
+            global_scale=_EXPORT_SCALE * context.scene.unit_settings.scale_length,
+            use_scene_unit=False,
         )
         if "FINISHED" in result:
             context.window_manager[_LAST_EXPORT_DIRECTORY_KEY] = os.path.dirname(

@@ -95,12 +95,18 @@ LLM コーディングで陥りがちなミスを減らすための行動指針�
 
 **サイドバーの構成**: 親パネル `SILCAST_PT_main` は中身を持たないヘッダーで、コントロールはその下のサブパネル 3 つが持つ（`SILCAST_PT_measurement` = Measurement、`SILCAST_PT_coloring` = Coloring、`SILCAST_PT_processing` = Processing。並び順は `bl_order`）。機能を足すときはどのセクションに載せるかを先に決める。
 
-現状の実装は以下の 5 機能。造形機能の本体はこれから。
+主な実装済み機能:
+
+- **空気孔**（Processing / Air Vents）— silicone_casting.draw_air_vents が最初にクリックした面の位置・法線で平面を固定し、その平面上の自由線から円筒状の管を生成する。単位付き Diameter のライブプレビュー、複数線、平滑化、Undo / Redo に対応。Enter で選択メッシュ群へ同じ切削メッシュを使う Boolean Difference を追加し、Esc で一時データごと取消
 
 - **Solidify**（Processing）— `silicone_casting.solidify` で選択メッシュにアドオン専用の Solidify モディファイアを付与・更新し、`silicone_casting.apply_solidify` でそのモディファイアだけをメッシュに焼き込む。パラメータは壁厚（mm 入力）、方向反転、均一な厚み
+
 - **体積計測**（Measurement）— `silicone_casting.measure_volume` が選択メッシュの体積をモディファイア込みのワールド実寸で合計し、mL で `Scene.silicone_casting` に保存する（ボタン押下時のスナップショット。閉じていないメッシュがあれば数値を出さずエラー）。`silicone_casting.copy_value` は渡された文字列をクリップボードへコピーするだけの汎用オペレータで、体積という概念を持たない
-- **STL 出力**（Processing）— `silicone_casting.export_stl` がアクティブオブジェクト名を既定名にして保存先選択を開き、選択物のみ・モディファイア適用・1000 倍の固定設定で STL を出力する。同じ Blender セッションでは、直前に出力したフォルダを次回の既定保存先にする
+
+- **STL 出力**（Processing）— `silicone_casting.export_stl` がアクティブオブジェクト名を既定名にして保存先選択を開き、選択物のみ・モディファイア適用・シーン単位から mm への換算で STL を出力する（既定の単位スケールでは 1000 倍）。同じ Blender セッションでは、直前に出力したフォルダを次回の既定保存先にする
+
 - **Boolean**（Processing）— `silicone_casting.add_boolean` がアクティブな選択メッシュへ、指定した別メッシュを Operand とする Boolean モディファイアを追加する。Difference / Union / Intersect と Manifold / Exact / Float を選択できる
+
 - **混色シミュレータ**（Coloring）— 染料色を彩度100%固定のHue・Lightness、色スウォッチ付きカラーピッカー、Hex（sRGB）から入力し、染料別の校正濃度（滴/mL）を重みにした代表反射スペクトルの減法混色近似を行う。全染料による不透明化、Lightness 100%の白による自動淡色化、黒や茶色を含む他色の暗色化を反映し、名前付きプロファイルとして保存する。光学設定はTransparencyのみ。結果色とコピー可能なカラー値を常時表示し、専用マテリアルを選択メッシュへ適用できる
 
 ## ツーリング

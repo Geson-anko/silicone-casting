@@ -424,6 +424,7 @@ class TestColorProfileSettings:
         "solidify_thickness",
         "surface_cut_thickness",
         "surface_cut_margin",
+        "air_vent_diameter",
         "key_width",
         "key_length",
         "key_height",
@@ -458,6 +459,7 @@ def test_distance_preserves_saved_millimetres_across_scene_scales(
         "solidify_thickness",
         "surface_cut_thickness",
         "surface_cut_margin",
+        "air_vent_diameter",
         "key_width",
         "key_length",
         "key_height",
@@ -476,7 +478,12 @@ def test_distance_inputs_declare_native_length_units(
 
 
 @pytest.mark.parametrize(
-    "name,minimum", [("solidify_thickness", 0.001), ("surface_cut_thickness", 0.001)]
+    "name,minimum",
+    [
+        ("solidify_thickness", 0.001),
+        ("surface_cut_thickness", 0.001),
+        ("air_vent_diameter", 0.01),
+    ],
 )
 def test_distance_input_keeps_the_physical_minimum(
     registered: None, name: str, minimum: float

@@ -12,6 +12,7 @@ from ..operators import (
     SILCAST_OT_add_surface_cut,
     SILCAST_OT_apply_solidify,
     SILCAST_OT_copy_value,
+    SILCAST_OT_draw_air_vents,
     SILCAST_OT_draw_surface_cut,
     SILCAST_OT_edit_cutting_surface,
     SILCAST_OT_export_stl,
@@ -30,6 +31,19 @@ _VOLUME_LABEL: Final = "Volume (mL)"
 #: Stands in for the value before the first measurement. Keeping it to two
 #: characters keeps the row's shape identical before and after measuring.
 _NOT_MEASURED: Final = "--"
+
+
+def _processing_section(
+    layout: bpy.types.UILayout, identifier: str, title: str
+) -> bpy.types.UILayout | None:
+    """Keep each processing task one click away without a long sidebar."""
+    # Blender returns None for the body when collapsed; the stub omits it.
+    header, body = cast(
+        tuple[bpy.types.UILayout, bpy.types.UILayout | None],
+        layout.panel(identifier, default_closed=True),
+    )
+    header.label(text=title)
+    return body
 
 
 class SILCAST_PT_main(bpy.types.Panel):
@@ -137,65 +151,78 @@ class SILCAST_PT_processing(bpy.types.Panel):
         # call; Blender always populates it before invoking draw().
         assert layout is not None
         props = context.scene.silicone_casting
-        layout.prop(props, "solidify_thickness")
-        row = layout.row()
-        row.prop(props, "solidify_flip")
-        row.prop(props, "solidify_even_thickness")
-        layout.operator(SILCAST_OT_solidify.bl_idname, icon="MOD_SOLIDIFY")
-        layout.operator(SILCAST_OT_apply_solidify.bl_idname)
-        layout.separator()
-        boolean = layout.box()
-        boolean.label(text="Boolean", icon="MOD_BOOLEAN")
-        boolean.prop(props, "boolean_operand")
-        boolean.prop(props, "boolean_solver", expand=True)
-        operations = boolean.row(align=True)
-        for operation, label in (
-            ("DIFFERENCE", "Difference"),
-            ("UNION", "Union"),
-            ("INTERSECT", "Intersect"),
-        ):
-            button = operations.operator(
-                SILCAST_OT_add_boolean.bl_idname,
-                text=label,
+        solidify = _processing_section(layout, "solidify", "Solidify")
+        if solidify is not None:
+            solidify.prop(props, "solidify_thickness")
+            row = solidify.row()
+            row.prop(props, "solidify_flip")
+            row.prop(props, "solidify_even_thickness")
+            solidify.operator(SILCAST_OT_solidify.bl_idname, icon="MOD_SOLIDIFY")
+            solidify.operator(SILCAST_OT_apply_solidify.bl_idname)
+
+        boolean = _processing_section(layout, "boolean", "Boolean")
+        if boolean is not None:
+            boolean.prop(props, "boolean_operand")
+            boolean.row().prop(props, "boolean_solver", expand=True)
+            operations = boolean.row(align=True)
+            for operation, label in (
+                ("DIFFERENCE", "Difference"),
+                ("UNION", "Union"),
+                ("INTERSECT", "Intersect"),
+            ):
+                button = operations.operator(
+                    SILCAST_OT_add_boolean.bl_idname,
+                    text=label,
+                )
+                button.operation = operation
+
+        cutting = _processing_section(layout, "surface_cut", "Surface Cut")
+        if cutting is not None:
+            cutting.prop(props, "boolean_operand", text="")
+            cutting.prop(props, "surface_cut_thickness")
+            cutting.operator(SILCAST_OT_add_surface_cut.bl_idname, icon="MOD_SOLIDIFY")
+            cutting.separator()
+            cutting.prop(props, "surface_cut_margin")
+            cutting.row().prop(props, "surface_cut_input_mode", expand=True)
+            cutting.operator(SILCAST_OT_draw_surface_cut.bl_idname, icon="GREASEPENCIL")
+            cutting.operator(
+                SILCAST_OT_edit_cutting_surface.bl_idname, icon="EDITMODE_HLT"
             )
-            button.operation = operation
-        boolean.prop(props, "surface_cut_thickness")
-        boolean.operator(
-            SILCAST_OT_add_surface_cut.bl_idname,
-            icon="MOD_SOLIDIFY",
-        )
-        boolean.separator()
-        boolean.prop(props, "surface_cut_margin")
-        boolean.prop(props, "surface_cut_input_mode", expand=True)
-        boolean.operator(SILCAST_OT_draw_surface_cut.bl_idname, icon="GREASEPENCIL")
-        boolean.operator(SILCAST_OT_edit_cutting_surface.bl_idname, icon="EDITMODE_HLT")
-        object_row = layout.row()
-        object_row.enabled = (
-            context.active_object is not None and context.active_object.type == "MESH"
-        )
-        object_row.operator(SILCAST_OT_inherit_shape.bl_idname, icon="MOD_BOOLEAN")
-        layout.prop(props, "inherit_collection")
-        collection_row = layout.row()
-        collection_row.enabled = props.inherit_collection is not None
-        collection_row.operator(
-            SILCAST_OT_inherit_shape.bl_idname,
-            text="Inherit Collection Shape",
-            icon="OUTLINER_COLLECTION",
-        ).use_collection = True
+
+        vents = _processing_section(layout, "air_vents", "Air Vents")
+        if vents is not None:
+            vents.prop(props, "air_vent_diameter")
+            vents.operator(SILCAST_OT_draw_air_vents.bl_idname, icon="GREASEPENCIL")
+            vents.label(text="First face sets the plane")
+            vents.label(text="Drag to draw / Enter to cut")
+
+        inherit = _processing_section(layout, "inherit_shape", "Inherit Shape")
+        if inherit is not None:
+            object_row = inherit.row()
+            object_row.enabled = (
+                context.active_object is not None
+                and context.active_object.type == "MESH"
+            )
+            object_row.operator(SILCAST_OT_inherit_shape.bl_idname, icon="MOD_BOOLEAN")
+            inherit.prop(props, "inherit_collection", text="")
+            collection_row = inherit.row()
+            collection_row.enabled = props.inherit_collection is not None
+            collection_row.operator(
+                SILCAST_OT_inherit_shape.bl_idname,
+                text="Inherit Collection Shape",
+                icon="OUTLINER_COLLECTION",
+            ).use_collection = True
+
+        layout.separator()
         layout.operator(
             SILCAST_OT_separate_loose_parts.bl_idname,
             icon="MESH_DATA",
         )
         layout.separator()
-        # Blender returns None for the body when collapsed; the stub omits it.
-        header, keys = cast(
-            tuple[bpy.types.UILayout, bpy.types.UILayout | None],
-            layout.panel("registration_keys", default_closed=False),
-        )
-        header.label(text="Registration Keys")
+        keys = _processing_section(layout, "registration_keys", "Registration Keys")
         if keys is not None:
             keys.label(text="Active half: pin")
-            keys.prop(props, "key_mate")
+            keys.prop(props, "key_mate", text="Socket")
             keys.prop(props, "key_shape")
             keys.prop(props, "key_width")
             if props.key_shape == "RECTANGLE":

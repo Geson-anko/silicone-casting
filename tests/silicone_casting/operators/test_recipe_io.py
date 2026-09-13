@@ -105,6 +105,49 @@ def test_invalid_late_row_does_not_change_existing_mixture(settings, tmp_path, i
     assert [p.part_name for p in settings.mixture_parts] == ["Keep me"]
 
 
+@pytest.mark.parametrize("invalid", ["before\x00after", "\ud800", "\udfff"])
+def test_invalid_name_does_not_partially_replace_the_mixture(
+    settings, tmp_path, invalid
+):
+    settings.mixture_parts.add().part_name = "Keep me"
+    path = tmp_path / "mixture.json"
+    bpy.ops.silicone_casting.export_recipes(filepath=str(path))
+    doc = json.loads(path.read_text())
+    doc["data"]["mixture_ratio_a"] = 4
+    doc["data"]["mixture_parts"][0]["part_name"] = invalid
+    path.write_text(json.dumps(doc))
+
+    with pytest.raises(RuntimeError):
+        bpy.ops.silicone_casting.import_recipes(filepath=str(path))
+
+    assert settings.mixture_ratio_a == 1
+    assert [p.part_name for p in settings.mixture_parts] == ["Keep me"]
+
+
+@pytest.mark.parametrize("invalid", ["before\x00after", "\ud800", "\udfff"])
+def test_invalid_colorant_name_does_not_append_partial_profiles(
+    settings, tmp_path, invalid
+):
+    bpy.ops.silicone_casting.add_color_profile()
+    profile = settings.color_profiles[0]
+    profile.profile_name = "Keep me"
+    profile.colorants.add().colorant_name = "Blue"
+    path = tmp_path / "colors.json"
+    bpy.ops.silicone_casting.export_recipes(filepath=str(path), kind="COLORS")
+    doc = json.loads(path.read_text())
+    doc["data"]["color_profiles"][0]["colorants"][0]["colorant_name"] = invalid
+    path.write_text(json.dumps(doc))
+    materials = set(bpy.data.materials)
+    active_index = settings.color_profile_active_index
+
+    with pytest.raises(RuntimeError):
+        bpy.ops.silicone_casting.import_recipes(filepath=str(path), kind="COLORS")
+
+    assert [p.profile_name for p in settings.color_profiles] == ["Keep me"]
+    assert settings.color_profile_active_index == active_index
+    assert set(bpy.data.materials) == materials
+
+
 @pytest.mark.parametrize("contents", ["{", "[]", '{"format": "other"}'])
 def test_malformed_or_unsupported_document_preserves_profiles(
     settings, tmp_path, contents

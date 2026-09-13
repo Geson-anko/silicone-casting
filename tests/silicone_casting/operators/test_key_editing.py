@@ -159,6 +159,24 @@ def test_edit_updates_selected_pair_dimensions_at_the_same_contact(halves) -> No
     assert (len(bpy.data.objects), len(bpy.data.meshes)) == before_count
 
 
+@pytest.mark.parametrize("visibility", [(False, True), (True, False), (False, False)])
+def test_editing_a_disabled_key_preserves_each_modifier_visibility(
+    halves, visibility
+) -> None:
+    pin = _add()
+    socket = key_socket(pin)
+    male_modifier = halves[0].modifiers[0]
+    female_modifier = halves[1].modifiers[0]
+    male_modifier.show_viewport, female_modifier.show_viewport = visibility
+    bpy.context.scene.silicone_casting.key_width_mm = 6
+
+    assert bpy.ops.silicone_casting.edit_registration_key() == {"FINISHED"}
+
+    assert (male_modifier.show_viewport, female_modifier.show_viewport) == visibility
+    assert max(vertex.co.x for vertex in pin.data.vertices) == pytest.approx(3)
+    assert max(vertex.co.x for vertex in socket.data.vertices) == pytest.approx(3.2)
+
+
 def test_editing_and_deleting_one_pair_does_not_modify_a_second_pair(halves) -> None:
     first = _add(location=(-4, 0, 0))
     bpy.context.view_layer.objects.active = halves[0]
@@ -214,12 +232,71 @@ def test_renamed_objects_keep_their_pair_and_edit_after_parent_motion(halves) ->
     assert halves[1].modifiers[0].object == socket
 
 
+@pytest.mark.parametrize("tilt", [0.0, pi / 4])
+@pytest.mark.parametrize("angle_change", [0.0, pi / 8])
+def test_resizing_a_rectangular_key_preserves_its_orientation_on_rotated_halves(
+    halves, tilt, angle_change
+) -> None:
+    props = bpy.context.scene.silicone_casting
+    props.key_shape = "RECTANGLE"
+    props.key_angle = 0.2
+    pin = _add(location=(2, 0, 0))
+    socket = key_socket(pin)
+    transform = (
+        Matrix.Translation((30, -5, 8))
+        @ Matrix.Rotation(tilt, 4, "Y")
+        @ Matrix.Rotation(pi / 3, 4, "Z")
+    )
+    for half in halves:
+        half.matrix_world = transform @ half.matrix_world
+    bpy.context.view_layer.update()
+    expected = pin.matrix_world @ Matrix.Rotation(angle_change, 4, "Z")
+    props.key_width_mm = 5
+    props.key_angle += angle_change
+
+    assert bpy.ops.silicone_casting.edit_registration_key(key_name=pin.name) == {
+        "FINISHED"
+    }
+
+    for operand in (pin, socket):
+        for actual_row, expected_row in zip(operand.matrix_world, expected):
+            assert tuple(actual_row) == pytest.approx(tuple(expected_row), abs=1e-5)
+    bounds = mesh_invariants(pin.data)
+    assert bounds.bbox_min == pytest.approx((-2.5, -3, -1))
+    assert bounds.bbox_max == pytest.approx((2.5, 3, 3))
+
+
+def test_resizing_after_parent_scaling_keeps_physical_key_dimensions(halves) -> None:
+    props = bpy.context.scene.silicone_casting
+    props.key_shape = "RECTANGLE"
+    pin = _add()
+    for half in halves:
+        half.matrix_world = Matrix.Diagonal((2, 3, 4, 1)) @ half.matrix_world
+    bpy.context.view_layer.update()
+    props.key_width_mm = 5
+
+    assert bpy.ops.silicone_casting.edit_registration_key(key_name=pin.name) == {
+        "FINISHED"
+    }
+
+    vertices = [pin.matrix_world @ vertex.co for vertex in pin.data.vertices]
+    assert tuple(min(v[i] for v in vertices) for i in range(3)) == pytest.approx(
+        (-2.5, -3, -1), abs=1e-5
+    )
+    assert tuple(max(v[i] for v in vertices) for i in range(3)) == pytest.approx(
+        (2.5, 3, 3), abs=1e-5
+    )
+
+
 @pytest.mark.parametrize("operation", ["move", "edit"])
+@pytest.mark.parametrize("visible", [False, True])
 def test_invalid_move_or_edit_restores_both_helpers_and_modifiers(
-    halves, operation
+    halves, operation, visible
 ) -> None:
     pin = _add()
     socket = key_socket(pin)
+    halves[0].modifiers[0].show_viewport = visible
+    halves[1].modifiers[0].show_viewport = visible
     before = (mesh_data(pin.data), mesh_data(socket.data))
     matrices = (pin.matrix_world.copy(), socket.matrix_world.copy())
     counts = (len(bpy.data.objects), len(bpy.data.meshes))
@@ -239,6 +316,8 @@ def test_invalid_move_or_edit_restores_both_helpers_and_modifiers(
     assert (pin.matrix_world, socket.matrix_world) == matrices
     assert (len(bpy.data.objects), len(bpy.data.meshes)) == counts
     assert len(halves[0].modifiers) == len(halves[1].modifiers) == 1
+    assert halves[0].modifiers[0].show_viewport == visible
+    assert halves[1].modifiers[0].show_viewport == visible
     assert pin.hide_get() and socket.hide_get()
 
 

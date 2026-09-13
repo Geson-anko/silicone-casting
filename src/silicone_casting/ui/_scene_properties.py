@@ -106,6 +106,36 @@ class SiliconeCastingProperties(bpy.types.PropertyGroup):
         default=True,
     )
 
+    # Store a physical diameter so the default remains 2 mm at any scene scale.
+    air_vent_diameter_mm: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Vent Diameter (mm)",
+        default=2.0,
+        min=0.01,
+        options={"HIDDEN"},
+    )
+
+    def _get_air_vent_diameter(self) -> float:
+        scene = cast(bpy.types.Scene, self.id_data)
+        return mm_to_units(
+            cast(float, getattr(self, "air_vent_diameter_mm")),
+            scene.unit_settings.scale_length,
+        )
+
+    def _set_air_vent_diameter(self, value: float) -> None:
+        scene = cast(bpy.types.Scene, self.id_data)
+        self.air_vent_diameter_mm = value * scene.unit_settings.scale_length * 1000
+
+    air_vent_diameter: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Diameter",
+        description="Air channel diameter; updates the current drawing preview",
+        subtype="DISTANCE",
+        unit="LENGTH",
+        min=0.0,
+        precision=4,
+        get=_get_air_vent_diameter,
+        set=_set_air_vent_diameter,
+    )
+
     key_width_mm: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
         name="Width / Diameter (mm)",
         default=4,

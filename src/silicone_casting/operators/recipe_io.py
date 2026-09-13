@@ -2,6 +2,7 @@
 
 import json
 import math
+import os
 from pathlib import Path
 from typing import Protocol, cast, override
 
@@ -90,6 +91,14 @@ def _validate(value: object, rule: _Rule, location: str) -> None:
             raise ValueError(f"{location}: number out of range")
     elif type(value) is not rule:
         raise ValueError(f"{location}: invalid value type")
+    elif rule is str:
+        text = cast(str, value)
+        if "\x00" in text:
+            raise ValueError(f"{location}: embedded null character")
+        try:
+            text.encode("utf-8")
+        except UnicodeEncodeError as error:
+            raise ValueError(f"{location}: invalid Unicode text") from error
 
 
 def _snapshot(source: object, schema: dict[str, _Rule]) -> dict[str, object]:
@@ -156,6 +165,16 @@ class SILCAST_OT_export_recipes(_RecipeFileOperator, bpy.types.Operator):
         default=True,
         options={"HIDDEN"},
     )
+
+    @override
+    def check(self, context: bpy.types.Context) -> bool:
+        # Normalize before Blender asks whether to overwrite an existing file.
+        filepath = cast(str, self.filepath)  # pyright: ignore[reportUnknownMemberType]
+        normalized = bpy.path.ensure_ext(filepath, ".json")
+        if os.path.basename(filepath) and normalized != filepath:
+            self.filepath = normalized
+            return True
+        return False
 
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:

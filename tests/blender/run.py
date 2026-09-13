@@ -117,6 +117,7 @@ def check_addon_is_enabled() -> None:
         "add_boolean",
         "add_surface_cut",
         "draw_surface_cut",
+        "draw_air_vents",
         "edit_cutting_surface",
         "separate_loose_parts",
         "inherit_shape",
@@ -812,6 +813,65 @@ def check_export_stl_uses_the_fixed_settings() -> None:
     assert modifier.name in selected.modifiers, "export applied the source modifier"
 
 
+def check_export_stl_preserves_physical_size_with_custom_scene_units() -> None:
+    """A 20 mm cube must stay 20 mm even when distance labels are disabled."""
+    _deselect_everything()
+    bpy.ops.mesh.primitive_cube_add(size=20.0)
+    units = bpy.context.scene.unit_settings
+    previous = units.system, units.scale_length
+    try:
+        units.system = "NONE"
+        units.scale_length = 0.001
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "20mm.stl"
+            result = bpy.ops.silicone_casting.export_stl(filepath=str(path))
+            assert result == {"FINISHED"}, f"export_stl returned {result}"
+            vertices = _binary_stl_vertices(path)
+        for axis in range(3):
+            coordinates = [vertex[axis] for vertex in vertices]
+            assert abs(min(coordinates) + 10.0) <= STL_TOLERANCE
+            assert abs(max(coordinates) - 10.0) <= STL_TOLERANCE
+    finally:
+        units.system, units.scale_length = previous
+
+
+def check_air_vents_cut_both_mold_halves() -> None:
+    """The installed extension produces one live shared cutter for two
+    halves."""
+    from bl_ext.user_default.silicone_casting.core import (
+        add_air_vent_cutters,
+        create_air_vent_mesh,
+        world_volume,
+    )
+    from mathutils import Vector
+
+    targets = []
+    for x in (-1.0, 1.0):
+        bpy.ops.mesh.primitive_cube_add(size=2, location=(x, 0, 0))
+        targets.append(bpy.context.active_object)
+    cutter_mesh = create_air_vent_mesh(
+        "Air Vents",
+        [[Vector((-3, 0, 0)), Vector((3, 0, 0))]],
+        Vector((0, 0, 1)),
+        0.4,
+    )
+    cutter = bpy.data.objects.new("Air Vents", cutter_mesh)
+    bpy.context.scene.collection.objects.link(cutter)
+    try:
+        add_air_vent_cutters(targets, cutter)
+        bpy.context.view_layer.update()
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        for target in targets:
+            assert target.modifiers[-1].object == cutter
+            volume = world_volume(target, depsgraph)
+            assert volume is not None and 7.7 < volume < 7.8
+    finally:
+        for obj in [*targets, cutter]:
+            mesh = obj.data
+            bpy.data.objects.remove(obj, do_unlink=True)
+            bpy.data.meshes.remove(mesh)
+
+
 CHECKS = (
     check_addon_is_enabled,
     check_scene_properties,
@@ -821,11 +881,13 @@ CHECKS = (
     check_boolean_modifier_uses_the_requested_inputs,
     check_registration_keys_preview_and_commit,
     check_surface_cut_is_one_integrated_modifier,
+    check_air_vents_cut_both_mold_halves,
     check_loose_parts_become_separate_objects,
     check_measuring_a_closed_cube_stores_its_millilitres,
     check_an_open_mesh_clears_the_stored_measurement,
     check_copying_a_value_finishes,
     check_export_stl_uses_the_fixed_settings,
+    check_export_stl_preserves_physical_size_with_custom_scene_units,
     # This opens a saved .blend, so it must stay last.
     check_mixture_settings_survive_save_and_reload,
 )

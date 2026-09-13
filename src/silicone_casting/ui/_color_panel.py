@@ -25,6 +25,23 @@ from ..operators.color_simulator import (
 )
 
 
+def _colorant_table_cells(
+    layout: bpy.types.UILayout,
+) -> tuple[bpy.types.UILayout, ...]:
+    """Keep dye headings and editable rows in the same responsive columns."""
+    weights = (0.55, 1.2, 2.5, 2.0, 2.0, 2.8, 2.2)
+    remaining = layout.row(align=True)
+    remaining_weight = sum(weights)
+    cells: list[bpy.types.UILayout] = []
+    for weight in weights[:-1]:
+        split = remaining.split(factor=weight / remaining_weight, align=True)
+        cells.append(split.column(align=True))
+        remaining = split.column(align=True)
+        remaining_weight -= weight
+    cells.append(remaining)
+    return tuple(cells)
+
+
 class SILCAST_UL_color_profiles(bpy.types.UIList):
     """Compact selector for named color recipes."""
 
@@ -70,16 +87,21 @@ class SILCAST_UL_colorants(bpy.types.UIList):
         if item is None:
             return
         colorant = cast(ColorantValues, item)
-        row = layout.row(align=True)
-        row.prop(colorant, "enabled", text="")
-        swatch = row.row(align=True)
-        swatch.scale_x = 0.7
-        swatch.prop(colorant, "calibration_color", text="")
-        row.prop(colorant, "colorant_name", text="")
-        row.prop(colorant, "calibration_hue_degrees", text="")
-        row.prop(colorant, "calibration_lightness_percent", text="")
-        row.prop(colorant, "calibration_drops_per_ml", text="")
-        row.prop(colorant, "drops", text="")
+        cells = _colorant_table_cells(layout)
+        for cell, property_name in zip(
+            cells,
+            (
+                "enabled",
+                "calibration_color",
+                "colorant_name",
+                "calibration_hue_degrees",
+                "calibration_lightness_percent",
+                "calibration_drops_per_ml",
+                "drops",
+            ),
+            strict=True,
+        ):
+            cell.prop(colorant, property_name, text="")
 
 
 def _draw_profile_selector(
@@ -154,17 +176,22 @@ def _draw_colorants(
         text="Calibration Drops / mL: measured color/opacity point (1.0 estimate)",
         icon="INFO",
     )
-    header = colorants.row(align=True)
-    for text in (
-        "On",
-        "Color",
-        "Dye",
-        "Hue (degrees)",
-        "Lightness (%)",
-        "Calibration Drops / mL",
-        "Actual Drops",
+    header = colorants.row()
+    for cell, text in zip(
+        _colorant_table_cells(header),
+        (
+            "On",
+            "Color",
+            "Dye",
+            "Hue (degrees)",
+            "Lightness (%)",
+            "Calibration Drops / mL",
+            "Actual Drops",
+        ),
+        strict=True,
     ):
-        header.label(text=text)
+        cell.label(text=text)
+    header.column().label(text="", icon="BLANK1")
     colorant_row = colorants.row()
     profile_properties = cast(bpy.types.PropertyGroup, profile)
     colorant_row.template_list(

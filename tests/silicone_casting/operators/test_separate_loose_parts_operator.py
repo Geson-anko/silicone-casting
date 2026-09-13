@@ -156,6 +156,65 @@ def test_selected_meshes_are_processed_in_context_order_while_non_meshes_are_ign
     assert len(bpy.context.active_object.data.vertices) == 3
 
 
+@pytest.fixture
+def materials() -> Iterator[tuple[bpy.types.Material, ...]]:
+    created = tuple(
+        bpy.data.materials.new(name)
+        for name in ("Mesh Color", "Object Color", "Second Face Color")
+    )
+    yield created
+    for material in created:
+        bpy.data.materials.remove(material)
+
+
+def test_separated_parts_keep_object_material_overrides_and_face_assignments(
+    loose_object: bpy.types.Object,
+    materials: tuple[bpy.types.Material, ...],
+) -> None:
+    base, override, second = materials
+    loose_object.data.materials.append(base)
+    loose_object.data.materials.append(second)
+    loose_object.material_slots[0].link = "OBJECT"
+    loose_object.material_slots[0].material = override
+    loose_object.data.polygons[1].material_index = 1
+
+    result = bpy.ops.silicone_casting.separate_loose_parts()
+
+    assert result == {"FINISHED"}
+    parts = sorted(
+        bpy.context.selected_objects,
+        key=lambda part: min(vertex.co.x for vertex in part.data.vertices),
+    )
+    assert len(parts) == 2
+    assert (
+        parts[0].material_slots[parts[0].data.polygons[0].material_index].material
+        == override
+    )
+    assert (
+        parts[1].material_slots[parts[1].data.polygons[0].material_index].material
+        == second
+    )
+    assert loose_object.material_slots[0].link == "OBJECT"
+    assert loose_object.material_slots[0].material == override
+    assert list(loose_object.data.materials) == [base, second]
+
+
+def test_an_empty_object_material_override_stays_empty_on_separated_parts(
+    loose_object: bpy.types.Object,
+    materials: tuple[bpy.types.Material, ...],
+) -> None:
+    loose_object.data.materials.append(materials[0])
+    loose_object.material_slots[0].link = "OBJECT"
+    loose_object.material_slots[0].material = None
+
+    bpy.ops.silicone_casting.separate_loose_parts()
+
+    assert len(bpy.context.selected_objects) == 2
+    assert all(
+        part.material_slots[0].material is None for part in bpy.context.selected_objects
+    )
+
+
 @pytest.mark.api_contract
 def test_the_operator_keeps_its_public_idname(registered: None) -> None:
     assert (

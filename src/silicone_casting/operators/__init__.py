@@ -10,6 +10,7 @@ from .color_simulator import (
     SILCAST_OT_remove_colorant,
 )
 from .copy_value import SILCAST_OT_copy_value
+from .draw_air_vents import SILCAST_OT_draw_air_vents, cancel_air_vent_drawing
 from .draw_surface_cut import (
     SILCAST_OT_draw_surface_cut,
     SILCAST_OT_edit_cutting_surface,
@@ -72,6 +73,8 @@ __all__ = [
     "SILCAST_OT_copy_mixture_volume_to_coloring",
     "SILCAST_OT_export_stl",
     "SILCAST_OT_draw_surface_cut",
+    "SILCAST_OT_draw_air_vents",
+    "cancel_air_vent_drawing",
     "SILCAST_OT_edit_cutting_surface",
     "SILCAST_OT_inherit_shape",
     "SILCAST_OT_measure_volume",

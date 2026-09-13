@@ -1,6 +1,7 @@
 """Mesh processing that does not depend on ``bpy.ops`` or an interactive
 context."""
 
+from .air_vents import add_air_vent_cutters, create_air_vent_mesh
 from .color_mixing import (
     RGB,
     CalibratedColorant,
@@ -43,6 +44,8 @@ __all__ = [
     "SURFACE_CUT_MODIFIER_NAME",
     "VolumeSummary",
     "apply_solidify",
+    "add_air_vent_cutters",
+    "create_air_vent_mesh",
     "calculate_mixture",
     "cubic_units_to_ml",
     "create_surface_cut",
