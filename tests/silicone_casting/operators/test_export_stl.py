@@ -25,7 +25,7 @@ SOLIDIFY_THICKNESS = 1.0
 EXPORT_SCALE = 1000.0
 FAR_CUBE_LOCATION_X = 10.0
 
-AddObject = Callable[..., bpy.types.Object]
+type AddObject = Callable[..., bpy.types.Object]
 
 
 def _leave_edit_mode() -> None:

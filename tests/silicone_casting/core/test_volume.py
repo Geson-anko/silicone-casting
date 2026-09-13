@@ -16,7 +16,7 @@ watertight decision stay separate from the implementation's, so neither
 can excuse the other.
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator
 
 import bpy
 import pytest
@@ -306,15 +306,19 @@ class TestWorldVolumeLeavesNoTemporaryMeshBehind:
 
 
 class TestTotalVolumeOverASelection:
+    @pytest.mark.parametrize("objects", [list, iter], ids=["list", "single-pass"])
     def test_two_closed_cubes_come_to_twice_one_cube(
-        self, cube_object: bpy.types.Object, make_object: MakeObject
+        self,
+        cube_object: bpy.types.Object,
+        make_object: MakeObject,
+        objects: Callable[[list[bpy.types.Object]], Iterable[bpy.types.Object]],
     ) -> None:
         # AC-23 / G-1: the operator reports a single total, so the sum is
         # the contract rather than a per-object breakdown.
         other = make_object(make_cube_mesh(CUBE_SIZE, "OtherCube"), "OtherCube")
 
-        summary = total_volume(
-            [cube_object, other], bpy.context.evaluated_depsgraph_get()
+        summary = VolumeSummary.from_objects(
+            objects([cube_object, other]), bpy.context.evaluated_depsgraph_get()
         )
 
         assert summary.measured_count == 2
@@ -341,7 +345,7 @@ class TestTotalVolumeOverASelection:
 
     def test_an_empty_selection_measures_nothing_at_all(self) -> None:
         # AC-25.
-        summary = total_volume((), bpy.context.evaluated_depsgraph_get())
+        summary = VolumeSummary.from_objects((), bpy.context.evaluated_depsgraph_get())
 
         assert summary == VolumeSummary(
             volume=0.0, measured_count=0, non_watertight_names=()
@@ -351,7 +355,9 @@ class TestTotalVolumeOverASelection:
         self, camera_object: bpy.types.Object
     ) -> None:
         # AC-26: indistinguishable from the empty selection, by design.
-        summary = total_volume([camera_object], bpy.context.evaluated_depsgraph_get())
+        summary = VolumeSummary.from_objects(
+            [camera_object], bpy.context.evaluated_depsgraph_get()
+        )
 
         assert summary == VolumeSummary(
             volume=0.0, measured_count=0, non_watertight_names=()
@@ -363,7 +369,7 @@ class TestTotalVolumeOverASelection:
         # AC-27: the summary carries both halves of the story. Whether a
         # partial total may be shown is the operator's decision (FR-32),
         # and it needs the count and the names to make it.
-        summary = total_volume(
+        summary = VolumeSummary.from_objects(
             [cube_object, open_cube_object], bpy.context.evaluated_depsgraph_get()
         )
 
@@ -380,7 +386,7 @@ class TestTotalVolumeOverASelection:
         second = make_object(_open_cube_mesh("OpenSecond"), "OpenSecond")
         third = make_object(_open_cube_mesh("OpenThird"), "OpenThird")
 
-        summary = total_volume(
+        summary = VolumeSummary.from_objects(
             [first, second, third], bpy.context.evaluated_depsgraph_get()
         )
 
@@ -397,7 +403,7 @@ class TestTotalVolumeOverASelection:
         scaled.scale = (2.0, 2.0, 2.0)
         depsgraph = bpy.context.evaluated_depsgraph_get()
 
-        summary = total_volume([cube_object, scaled], depsgraph)
+        summary = VolumeSummary.from_objects([cube_object, scaled], depsgraph)
 
         assert summary.measured_count == 2
         assert summary.volume == pytest.approx(EXPECTED_SHARED_TOTAL, abs=VOLUME_TOL)
@@ -411,7 +417,7 @@ class TestTotalVolumeOverASelection:
         closed_before = mesh_invariants(cube_object.data)
         open_before = mesh_invariants(open_cube_object.data)
 
-        total_volume(
+        VolumeSummary.from_objects(
             [cube_object, open_cube_object], bpy.context.evaluated_depsgraph_get()
         )
 

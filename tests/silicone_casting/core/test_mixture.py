@@ -31,7 +31,7 @@ class TestCalculateMixture:
         )
 
     def test_different_densities_follow_a_three_to_one_weight_ratio(self) -> None:
-        actual = calculate_mixture(90.0, 1.5, 1.0, 3.0, 1.0)
+        actual = MixtureBreakdown.from_volume(90.0, 1.5, 1.0, 3.0, 1.0)
 
         _assert_breakdown(
             actual,
@@ -46,14 +46,14 @@ class TestCalculateMixture:
         )
 
     def test_zero_volume_makes_every_output_zero(self) -> None:
-        actual = calculate_mixture(0.0, 1.5, 0.9, 10.0, 1.0)
+        actual = MixtureBreakdown.from_volume(0.0, 1.5, 0.9, 10.0, 1.0)
 
         _assert_breakdown(actual, MixtureBreakdown(0.0, 0.0, 0.0, 0.0, 0.0, 0.0))
 
     def test_breakdowns_are_additive_across_part_volumes(self) -> None:
-        first = calculate_mixture(20.0, 1.4, 0.95, 2.0, 1.0)
-        second = calculate_mixture(30.0, 1.4, 0.95, 2.0, 1.0)
-        combined = calculate_mixture(50.0, 1.4, 0.95, 2.0, 1.0)
+        first = MixtureBreakdown.from_volume(20.0, 1.4, 0.95, 2.0, 1.0)
+        second = MixtureBreakdown.from_volume(30.0, 1.4, 0.95, 2.0, 1.0)
+        combined = MixtureBreakdown.from_volume(50.0, 1.4, 0.95, 2.0, 1.0)
 
         for field in fields(MixtureBreakdown):
             assert getattr(first, field.name) + getattr(

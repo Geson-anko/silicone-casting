@@ -17,7 +17,7 @@ from silicone_casting.operators import SILCAST_OT_inherit_shape
 CUBE_SIZE = 2.0
 SOLIDIFY_THICKNESS = 0.2
 
-AddObject = Callable[..., bpy.types.Object]
+type AddObject = Callable[..., bpy.types.Object]
 
 
 def _leave_edit_mode() -> None:

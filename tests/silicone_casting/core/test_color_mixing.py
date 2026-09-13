@@ -1,9 +1,12 @@
 """Calibrated spectral-reflectance mixing for silicone colorants."""
 
+from collections.abc import Callable, Iterable
+
 import pytest
 
 from silicone_casting.core import (
     CalibratedColorant,
+    SimulatedSiliconeAppearance,
     format_hex_color,
     format_linear_rgb,
     linear_rgb_to_hsl,
@@ -104,15 +107,18 @@ def test_white_uses_the_shared_spectral_rule_and_reaches_opaque_at_calibration()
     assert result.transparency == pytest.approx(0.0)
 
 
-def test_white_makes_another_dye_paler_below_its_calibration_concentration() -> None:
+@pytest.mark.parametrize("colorants", [list, iter], ids=["list", "single-pass"])
+def test_white_makes_another_dye_paler_below_its_calibration_concentration(
+    colorants: Callable[[list[CalibratedColorant]], Iterable[CalibratedColorant]],
+) -> None:
     blue = CalibratedColorant((0.2, 0.4, 0.8), 1.0, 100.0)
     half_strength_white = CalibratedColorant(WHITE, 1.0, 50.0)
 
-    result = simulate_silicone_appearance(
+    result = SimulatedSiliconeAppearance.from_mixture(
         WHITE,
         100.0,
         0.8,
-        [blue, half_strength_white],
+        colorants([blue, half_strength_white]),
     )
 
     assert result.color == pytest.approx(
@@ -135,7 +141,7 @@ def test_every_dye_reaches_opaque_at_its_calibration_concentration(
 ) -> None:
     dye = CalibratedColorant(calibration, 1.0, 100.0)
 
-    result = simulate_silicone_appearance(WHITE, 100.0, 0.7, [dye])
+    result = SimulatedSiliconeAppearance.from_mixture(WHITE, 100.0, 0.7, [dye])
 
     assert result.color == pytest.approx(calibration, abs=1e-4)
     assert result.transparency == pytest.approx(0.0)
@@ -144,7 +150,7 @@ def test_every_dye_reaches_opaque_at_its_calibration_concentration(
 def test_half_strength_dye_halves_transparency() -> None:
     dye = CalibratedColorant((0.25, 0.64, 0.81), 1.0, 50.0)
 
-    result = simulate_silicone_appearance(WHITE, 100.0, 0.8, [dye])
+    result = SimulatedSiliconeAppearance.from_mixture(WHITE, 100.0, 0.8, [dye])
 
     assert result.color == pytest.approx(
         (0.509796, 0.802891, 0.901514),
@@ -195,8 +201,8 @@ def test_black_and_non_white_saturated_dyes_use_subtractive_darkening() -> None:
         100.0,
     )
 
-    black_result = simulate_silicone_appearance(WHITE, 100.0, 0.8, [black])
-    brown_result = simulate_silicone_appearance(WHITE, 100.0, 0.8, [brown])
+    black_result = SimulatedSiliconeAppearance.from_mixture(WHITE, 100.0, 0.8, [black])
+    brown_result = SimulatedSiliconeAppearance.from_mixture(WHITE, 100.0, 0.8, [brown])
 
     assert max(black_result.color) < 1e-5
     assert brown_result.color == pytest.approx(brown.calibration_color, abs=1e-4)

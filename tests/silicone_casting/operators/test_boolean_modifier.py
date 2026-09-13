@@ -20,7 +20,7 @@ from silicone_casting.operators import (
 
 CUBE_SIZE = 2.0
 
-AddObject = Callable[..., bpy.types.Object]
+type AddObject = Callable[..., bpy.types.Object]
 
 
 @pytest.fixture(scope="module")

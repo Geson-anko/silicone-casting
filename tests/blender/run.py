@@ -241,9 +241,8 @@ def check_named_color_profiles_update_and_apply_independently() -> None:
     assert cube.active_material == cool.preview_material
 
 
-def check_mixture_settings_survive_save_and_reload() -> None:
-    """Saved calculator and color-profile inputs must survive a .blend round-
-    trip."""
+def _prepare_saved_mixture_settings() -> None:
+    """Populate independent mixture rows and color profiles before saving."""
     settings = bpy.context.scene.silicone_casting
     settings.mixture_parts.clear()
     settings.mixture_use_shared_density = False
@@ -299,6 +298,106 @@ def check_mixture_settings_survive_save_and_reload() -> None:
     settings.mixture_selection_anchor = 1
     settings.mixture_active_index = 1
 
+
+def _assert_loaded_mixture_inputs(loaded: bpy.types.PropertyGroup) -> None:
+    """Verify saved values and the reset of transient row selection after
+    loading."""
+    assert not loaded.mixture_use_shared_density
+    assert abs(loaded.mixture_density_a_g_per_ml - 1.5) <= TOLERANCE
+    assert abs(loaded.mixture_density_b_g_per_ml - 1.0) <= TOLERANCE
+    assert abs(loaded.mixture_ratio_a - 3.0) <= TOLERANCE
+    assert abs(loaded.mixture_ratio_b - 1.0) <= TOLERANCE
+    assert [part.part_name for part in loaded.mixture_parts] == ["Body", "Lid"]
+    assert [part.enabled for part in loaded.mixture_parts] == [True, False]
+    assert [part.selected for part in loaded.mixture_parts] == [False, True]
+    assert [part.volume_ml for part in loaded.mixture_parts] == [60.0, 30.0]
+    assert loaded.mixture_selection_anchor == -1
+    assert loaded.mixture_active_index == -1
+
+
+def _assert_loaded_color_profiles(loaded: bpy.types.PropertyGroup) -> None:
+    """Verify saved colorants, independent materials, and rebuilt preview
+    colors."""
+    assert [profile.profile_name for profile in loaded.color_profiles] == [
+        "Clear Yellow",
+        "Opaque White",
+    ]
+    loaded_clear = loaded.color_profiles[0]
+    loaded_opaque = loaded.color_profiles[1]
+    assert abs(loaded_clear.base_volume_ml - 125.0) <= TOLERANCE
+    assert all(
+        abs(actual - expected) <= TOLERANCE
+        for actual, expected in zip(
+            loaded_clear.base_color,
+            (1.0, 0.9, 0.7),
+            strict=True,
+        )
+    )
+    assert abs(loaded_clear.transparency - 0.9) <= TOLERANCE
+    assert len(loaded_clear.colorants) == 1
+    loaded_amber = loaded_clear.colorants[0]
+    assert loaded_amber.colorant_name == "Amber"
+    assert abs(loaded_amber.calibration_hue_degrees - 30.0) <= TOLERANCE
+    assert abs(loaded_amber.calibration_lightness_percent - 25.0) <= TOLERANCE
+    assert abs(loaded_amber.calibration_drops_per_ml - 2.0) <= TOLERANCE
+    assert abs(loaded_amber.drops - 0.5) <= TOLERANCE
+    assert abs(loaded_opaque.transparency - 0.8) <= TOLERANCE
+    assert len(loaded_opaque.colorants) == 2
+    loaded_blue = loaded_opaque.colorants[0]
+    loaded_white = loaded_opaque.colorants[1]
+    assert loaded_blue.colorant_name == "Blue"
+    assert abs(loaded_blue.calibration_hue_degrees - 240.0) <= TOLERANCE
+    assert abs(loaded_blue.calibration_lightness_percent - 50.0) <= TOLERANCE
+    assert loaded_white.colorant_name == "White"
+    assert abs(loaded_white.calibration_hue_degrees - 30.0) <= TOLERANCE
+    assert abs(loaded_white.calibration_lightness_percent - 100.0) <= TOLERANCE
+    shader = loaded_opaque.preview_material.node_tree.nodes["Silicone Casting Shader"]
+    assert abs(shader.inputs["Transmission Weight"].default_value) <= TOLERANCE
+    assert abs(shader.inputs["Subsurface Weight"].default_value) <= TOLERANCE
+    assert all(
+        abs(actual - expected) <= TOLERANCE
+        for actual, expected in zip(
+            loaded_opaque.preview_material.diffuse_color,
+            (0.036822, 0.107334, 1.0, 1.0),
+            strict=True,
+        )
+    )
+    assert loaded_clear.preview_material != loaded_opaque.preview_material
+    assert loaded.color_profile_active_index == 1
+    assert loaded_clear.colorant_active_index == -1
+
+
+def _check_reloaded_recipe_round_trip(
+    loaded: bpy.types.PropertyGroup, path: Path
+) -> None:
+    """Scale a restored dye dose and round-trip it through recipe JSON."""
+    loaded_clear = loaded.color_profiles[0]
+    loaded_amber = loaded_clear.colorants[0]
+    # The first volume edit after reloading must scale saved dye doses.
+    loaded_clear.base_volume_ml *= 2
+    assert abs(loaded_amber.drops - 1.0) <= TOLERANCE
+    recipe_path = str(path.with_suffix(".json"))
+    result = bpy.ops.silicone_casting.export_recipes(
+        filepath=recipe_path, kind="COLORS"
+    )
+    assert result == {"FINISHED"}
+    result = bpy.ops.silicone_casting.import_recipes(
+        filepath=recipe_path, kind="COLORS"
+    )
+    assert result == {"FINISHED"}
+    assert len(loaded.color_profiles) == 4
+    loaded_clear = loaded.color_profiles[0]
+    imported = loaded.color_profiles[2]
+    assert abs(imported.base_volume_ml - loaded_clear.base_volume_ml) <= TOLERANCE
+    assert abs(imported.colorants[0].drops - 1.0) <= TOLERANCE
+    assert imported.preview_material != loaded_clear.preview_material
+
+
+def check_mixture_settings_survive_save_and_reload() -> None:
+    """Saved calculator and color-profile inputs must survive a .blend round-
+    trip."""
+    _prepare_saved_mixture_settings()
+
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "mixture-round-trip.blend"
         result = bpy.ops.wm.save_as_mainfile(filepath=str(path))
@@ -307,85 +406,9 @@ def check_mixture_settings_survive_save_and_reload() -> None:
         assert result == {"FINISHED"}, f"open_mainfile returned {result}"
 
         loaded = bpy.context.scene.silicone_casting
-        assert not loaded.mixture_use_shared_density
-        assert abs(loaded.mixture_density_a_g_per_ml - 1.5) <= TOLERANCE
-        assert abs(loaded.mixture_density_b_g_per_ml - 1.0) <= TOLERANCE
-        assert abs(loaded.mixture_ratio_a - 3.0) <= TOLERANCE
-        assert abs(loaded.mixture_ratio_b - 1.0) <= TOLERANCE
-        assert [part.part_name for part in loaded.mixture_parts] == ["Body", "Lid"]
-        assert [part.enabled for part in loaded.mixture_parts] == [True, False]
-        assert [part.selected for part in loaded.mixture_parts] == [False, True]
-        assert [part.volume_ml for part in loaded.mixture_parts] == [60.0, 30.0]
-        assert loaded.mixture_selection_anchor == -1
-        assert loaded.mixture_active_index == -1
-        assert [profile.profile_name for profile in loaded.color_profiles] == [
-            "Clear Yellow",
-            "Opaque White",
-        ]
-        loaded_clear = loaded.color_profiles[0]
-        loaded_opaque = loaded.color_profiles[1]
-        assert abs(loaded_clear.base_volume_ml - 125.0) <= TOLERANCE
-        assert all(
-            abs(actual - expected) <= TOLERANCE
-            for actual, expected in zip(
-                loaded_clear.base_color,
-                (1.0, 0.9, 0.7),
-                strict=True,
-            )
-        )
-        assert abs(loaded_clear.transparency - 0.9) <= TOLERANCE
-        assert len(loaded_clear.colorants) == 1
-        loaded_amber = loaded_clear.colorants[0]
-        assert loaded_amber.colorant_name == "Amber"
-        assert abs(loaded_amber.calibration_hue_degrees - 30.0) <= TOLERANCE
-        assert abs(loaded_amber.calibration_lightness_percent - 25.0) <= TOLERANCE
-        assert abs(loaded_amber.calibration_drops_per_ml - 2.0) <= TOLERANCE
-        assert abs(loaded_amber.drops - 0.5) <= TOLERANCE
-        assert abs(loaded_opaque.transparency - 0.8) <= TOLERANCE
-        assert len(loaded_opaque.colorants) == 2
-        loaded_blue = loaded_opaque.colorants[0]
-        loaded_white = loaded_opaque.colorants[1]
-        assert loaded_blue.colorant_name == "Blue"
-        assert abs(loaded_blue.calibration_hue_degrees - 240.0) <= TOLERANCE
-        assert abs(loaded_blue.calibration_lightness_percent - 50.0) <= TOLERANCE
-        assert loaded_white.colorant_name == "White"
-        assert abs(loaded_white.calibration_hue_degrees - 30.0) <= TOLERANCE
-        assert abs(loaded_white.calibration_lightness_percent - 100.0) <= TOLERANCE
-        shader = loaded_opaque.preview_material.node_tree.nodes[
-            "Silicone Casting Shader"
-        ]
-        assert abs(shader.inputs["Transmission Weight"].default_value) <= TOLERANCE
-        assert abs(shader.inputs["Subsurface Weight"].default_value) <= TOLERANCE
-        assert all(
-            abs(actual - expected) <= TOLERANCE
-            for actual, expected in zip(
-                loaded_opaque.preview_material.diffuse_color,
-                (0.036822, 0.107334, 1.0, 1.0),
-                strict=True,
-            )
-        )
-        assert loaded_clear.preview_material != loaded_opaque.preview_material
-        assert loaded.color_profile_active_index == 1
-        assert loaded_clear.colorant_active_index == -1
-
-        # The first volume edit after reloading must scale saved dye doses.
-        loaded_clear.base_volume_ml *= 2
-        assert abs(loaded_amber.drops - 1.0) <= TOLERANCE
-        recipe_path = str(path.with_suffix(".json"))
-        result = bpy.ops.silicone_casting.export_recipes(
-            filepath=recipe_path, kind="COLORS"
-        )
-        assert result == {"FINISHED"}
-        result = bpy.ops.silicone_casting.import_recipes(
-            filepath=recipe_path, kind="COLORS"
-        )
-        assert result == {"FINISHED"}
-        assert len(loaded.color_profiles) == 4
-        loaded_clear = loaded.color_profiles[0]
-        imported = loaded.color_profiles[2]
-        assert abs(imported.base_volume_ml - loaded_clear.base_volume_ml) <= TOLERANCE
-        assert abs(imported.colorants[0].drops - 1.0) <= TOLERANCE
-        assert imported.preview_material != loaded_clear.preview_material
+        _assert_loaded_mixture_inputs(loaded)
+        _assert_loaded_color_profiles(loaded)
+        _check_reloaded_recipe_round_trip(loaded, path)
 
 
 def check_solidify_then_apply_gives_a_double_walled_cube() -> None:

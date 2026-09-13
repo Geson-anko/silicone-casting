@@ -57,7 +57,7 @@ WALL_THICKNESS_BU = 0.001
 SOLIDIFIED_WALL_ML = "2.65"
 
 #: Signature of the ``add_object`` factory fixture.
-AddObject = Callable[..., bpy.types.Object]
+type AddObject = Callable[..., bpy.types.Object]
 
 
 def _leave_edit_mode() -> None:

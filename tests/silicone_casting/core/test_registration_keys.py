@@ -18,7 +18,7 @@ from silicone_casting.core.registration_keys import (
 
 @pytest.fixture
 def dimensions() -> KeyDimensions:
-    return KeyDimensions(
+    return KeyDimensions.from_mm(
         shape="CYLINDER",
         width=4.0,
         length=6.0,
@@ -26,6 +26,7 @@ def dimensions() -> KeyDimensions:
         embed=1.0,
         clearance=0.2,
         depth_clearance=0.4,
+        scale_length=0.001,
         taper=0.2,
     )
 
@@ -35,7 +36,7 @@ def dimensions() -> KeyDimensions:
 def test_each_key_and_socket_is_one_watertight_outward_solid(
     dimensions: KeyDimensions, make_object: MakeObject, shape: str, socket: bool
 ) -> None:
-    mesh = create_key_mesh("Key", replace(dimensions, shape=shape), socket=socket)
+    mesh = replace(dimensions, shape=shape).create_mesh("Key", socket=socket)
     make_object(mesh)
 
     invariants = mesh_invariants(mesh)
@@ -82,7 +83,7 @@ def test_socket_adds_clearance_per_side_and_only_extends_the_tip(
 def test_tapered_key_narrows_toward_the_tip(
     dimensions: KeyDimensions, make_object: MakeObject
 ) -> None:
-    mesh = create_key_mesh("Key", replace(dimensions, shape="TAPERED"))
+    mesh = replace(dimensions, shape="TAPERED").create_mesh("Key")
     make_object(mesh)
 
     top = [vertex.co.xy.length for vertex in mesh.vertices if vertex.co.z == 3.0]
@@ -97,7 +98,7 @@ def test_tapered_key_narrows_toward_the_tip(
 def test_tapered_socket_continues_the_slope_at_the_extended_tip(
     dimensions: KeyDimensions, make_object: MakeObject
 ) -> None:
-    mesh = create_key_mesh("Socket", replace(dimensions, shape="TAPERED"), socket=True)
+    mesh = replace(dimensions, shape="TAPERED").create_mesh("Socket", socket=True)
     make_object(mesh)
 
     top = [vertex.co.xy.length for vertex in mesh.vertices if vertex.co.z > 3]
@@ -112,8 +113,8 @@ def test_zero_clearance_socket_has_the_same_dimensions_as_the_key(
     dimensions: KeyDimensions, make_object: MakeObject, shape: str
 ) -> None:
     dimensions = replace(dimensions, shape=shape, clearance=0, depth_clearance=0)
-    male = create_key_mesh("Key", dimensions)
-    female = create_key_mesh("Socket", dimensions, socket=True)
+    male = dimensions.create_mesh("Key")
+    female = dimensions.create_mesh("Socket", socket=True)
     make_object(male)
     make_object(female)
 
@@ -146,7 +147,7 @@ def test_invalid_dimensions_are_rejected_without_creating_meshes(
     before = set(bpy.data.meshes)
 
     with pytest.raises(ValueError):
-        create_key_mesh("Invalid", replace(dimensions, **{field: value}))
+        replace(dimensions, **{field: value}).create_mesh("Invalid")
 
     assert set(bpy.data.meshes) == before
 
@@ -155,10 +156,8 @@ def test_socket_depth_cannot_extend_a_taper_past_its_apex(
     dimensions: KeyDimensions,
 ) -> None:
     with pytest.raises(ValueError):
-        create_key_mesh(
-            "Invalid",
-            replace(dimensions, shape="TAPERED", depth_clearance=30),
-            socket=True,
+        replace(dimensions, shape="TAPERED", depth_clearance=30).create_mesh(
+            "Invalid", socket=True
         )
 
 

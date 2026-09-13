@@ -39,7 +39,7 @@ SOLIDIFIED_VERTEX_COUNT = 16
 CUBE_VERTEX_COUNT = 8
 
 #: Signature of the ``add_object`` factory fixture.
-AddObject = Callable[..., bpy.types.Object]
+type AddObject = Callable[..., bpy.types.Object]
 
 
 def _leave_edit_mode() -> None:
