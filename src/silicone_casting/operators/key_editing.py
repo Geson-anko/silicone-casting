@@ -138,7 +138,7 @@ def _pin(context: bpy.types.Context, name: str) -> bpy.types.Object:
 def _update(
     context: bpy.types.Context,
     pin: bpy.types.Object,
-    location: Vector,
+    matrix: Matrix,
     normal: Vector,
     values: dict[str, str | float | bool],
 ) -> None:
@@ -152,7 +152,6 @@ def _update(
     dimensions = _dimensions(context, values)
     if normal.length_squared < 1e-20:
         raise ValueError("Surface normal must be nonzero")
-    matrix = _frame(location, normal, values)
     old_meshes = [cast(bpy.types.Mesh, obj.data) for obj in operands]
     old_matrices = [obj.matrix_world.copy() for obj in operands]
     new_meshes: list[bpy.types.Mesh] = []
@@ -297,7 +296,9 @@ class SILCAST_OT_move_registration_key(bpy.types.Operator):
         try:
             pin = _pin(context, self.key_name)
             values = {name: pin[name] for name in _FIELDS}
-            _update(context, pin, Vector(self.location), Vector(self.normal), values)
+            normal = Vector(self.normal)
+            matrix = _frame(Vector(self.location), normal, values)
+            _update(context, pin, matrix, normal, values)
             load_key_settings(context, pin)
         except (ValueError, RuntimeError) as exc:
             self.report({"ERROR"}, str(exc))
@@ -327,13 +328,33 @@ class SILCAST_OT_edit_registration_key(bpy.types.Operator):
                 pin.parent.matrix_world.to_3x3().inverted_safe().transposed()
                 @ Vector(pin[_NORMAL])
             )
-            _update(
-                context,
-                pin,
-                pin.matrix_world.translation.copy(),
-                normal,
-                _values(context),
-            )
+            values = _values(context)
+            location = pin.matrix_world.translation.copy()
+            matrix = _frame(location, normal, values)
+            if (
+                values["key_align_normal"]
+                and pin["key_align_normal"]
+                and values["key_flip"] == pin["key_flip"]
+            ):
+                # Preserve the tangent carried by the half's transform. Rebuild
+                # a rigid frame so dimensions remain physical lengths even if
+                # the parent was scaled, then apply only the angle change.
+                z = matrix.to_3x3() @ Vector((0, 0, 1))
+                x = pin.matrix_world.to_3x3() @ Vector((1, 0, 0))
+                x = (x - z * x.dot(z)).normalized()
+                y = cast(Vector, z.cross(x))
+                rotation = (
+                    Matrix(((x.x, x.y, x.z), (y.x, y.y, y.z), (z.x, z.y, z.z)))
+                    .transposed()
+                    .to_4x4()
+                )
+                angle_change = float(values["key_angle"]) - float(pin["key_angle"])
+                matrix = (
+                    Matrix.Translation((location.x, location.y, location.z))
+                    @ rotation
+                    @ Matrix.Rotation(angle_change, 4, "Z")
+                )
+            _update(context, pin, matrix, normal, values)
         except (ValueError, RuntimeError) as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}

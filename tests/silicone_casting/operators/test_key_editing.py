@@ -232,6 +232,62 @@ def test_renamed_objects_keep_their_pair_and_edit_after_parent_motion(halves) ->
     assert halves[1].modifiers[0].object == socket
 
 
+@pytest.mark.parametrize("tilt", [0.0, pi / 4])
+@pytest.mark.parametrize("angle_change", [0.0, pi / 8])
+def test_resizing_a_rectangular_key_preserves_its_orientation_on_rotated_halves(
+    halves, tilt, angle_change
+) -> None:
+    props = bpy.context.scene.silicone_casting
+    props.key_shape = "RECTANGLE"
+    props.key_angle = 0.2
+    pin = _add(location=(2, 0, 0))
+    socket = key_socket(pin)
+    transform = (
+        Matrix.Translation((30, -5, 8))
+        @ Matrix.Rotation(tilt, 4, "Y")
+        @ Matrix.Rotation(pi / 3, 4, "Z")
+    )
+    for half in halves:
+        half.matrix_world = transform @ half.matrix_world
+    bpy.context.view_layer.update()
+    expected = pin.matrix_world @ Matrix.Rotation(angle_change, 4, "Z")
+    props.key_width_mm = 5
+    props.key_angle += angle_change
+
+    assert bpy.ops.silicone_casting.edit_registration_key(key_name=pin.name) == {
+        "FINISHED"
+    }
+
+    for operand in (pin, socket):
+        for actual_row, expected_row in zip(operand.matrix_world, expected):
+            assert tuple(actual_row) == pytest.approx(tuple(expected_row), abs=1e-5)
+    bounds = mesh_invariants(pin.data)
+    assert bounds.bbox_min == pytest.approx((-2.5, -3, -1))
+    assert bounds.bbox_max == pytest.approx((2.5, 3, 3))
+
+
+def test_resizing_after_parent_scaling_keeps_physical_key_dimensions(halves) -> None:
+    props = bpy.context.scene.silicone_casting
+    props.key_shape = "RECTANGLE"
+    pin = _add()
+    for half in halves:
+        half.matrix_world = Matrix.Diagonal((2, 3, 4, 1)) @ half.matrix_world
+    bpy.context.view_layer.update()
+    props.key_width_mm = 5
+
+    assert bpy.ops.silicone_casting.edit_registration_key(key_name=pin.name) == {
+        "FINISHED"
+    }
+
+    vertices = [pin.matrix_world @ vertex.co for vertex in pin.data.vertices]
+    assert tuple(min(v[i] for v in vertices) for i in range(3)) == pytest.approx(
+        (-2.5, -3, -1), abs=1e-5
+    )
+    assert tuple(max(v[i] for v in vertices) for i in range(3)) == pytest.approx(
+        (2.5, 3, 3), abs=1e-5
+    )
+
+
 @pytest.mark.parametrize("operation", ["move", "edit"])
 @pytest.mark.parametrize("visible", [False, True])
 def test_invalid_move_or_edit_restores_both_helpers_and_modifiers(
