@@ -71,6 +71,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
     _region: bpy.types.Region
     _view: bpy.types.RegionView3D
     _bvh: BVHTree
+    _snap_bvh: BVHTree | None
     _selected: tuple[bpy.types.Object, ...]
     _loops: list[list[Vector]]
     _stroke: list[Vector]
@@ -164,12 +165,13 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
             low = Vector(tuple(min(p[i] for p in points) for i in range(3)))
             high = Vector(tuple(max(p[i] for p in points) for i in range(3)))
             self._size = (high - low).length
-            # Include silhouette hits without moving strokes appreciably.
+            # Positive epsilon casts a swept sphere: at polygon seams it can
+            # miss the front face or hit the back. Draw with exact rays.
             self._bvh = BVHTree.FromPolygons(
                 [(p.x, p.y, p.z) for p in points],
                 [tuple(cast(Sequence[int], face.vertices)) for face in mesh.polygons],
-                epsilon=self._size * 1e-7,
             )
+            self._snap_bvh = None
         finally:
             evaluated.to_mesh_clear()
         if self._size <= 0:
@@ -269,13 +271,21 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         self._header()
 
     def _pick(self, mouse: Vector) -> tuple[int, ...] | None:
+        if self._snap_bvh is None:
+            # Snapping needs a small tolerance to occlude rear elements at
+            # silhouettes. Allocate this separate tree only when snapping.
+            self._snap_bvh = BVHTree.FromPolygons(
+                [(p.x, p.y, p.z) for p in self._vertices],
+                self._faces,
+                epsilon=self._size * 1e-7,
+            )
         return pick_surface_element(
             mouse,
             self._vertices,
             self._edges,
             self._project,
             self._ray,
-            self._bvh,
+            self._snap_bvh,
             vertex_mode=self._input_mode == "VERTEX",
             tolerance=self._size * 1e-6,
         )
