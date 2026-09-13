@@ -11,45 +11,15 @@ from bpy_extras import view3d_utils
 from gpu_extras.batch import (
     batch_for_shader,  # pyright: ignore[reportUnknownVariableType]
 )
-from mathutils import Matrix, Vector
+from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
-from ..core.registration_keys import KeyDimensions, key_geometry, placement_matrix
-from ..core.units import mm_to_units
 from ._operator import OperatorReturn
 from .key_editing import is_registration_key, load_key_settings
+from .registration_keys import KeySettings
 
 _TOOL_ID = "silicone_casting.registration_keys"
 _gesture: SILCAST_OT_place_key | None = None
-
-
-def _dimensions(context: bpy.types.Context) -> KeyDimensions:
-    p = context.scene.silicone_casting
-    scale = context.scene.unit_settings.scale_length
-    return KeyDimensions(
-        p.key_shape,
-        *(
-            mm_to_units(getattr(p, f"key_{name}_mm"), scale)
-            for name in (
-                "width",
-                "length",
-                "height",
-                "embed",
-                "clearance",
-                "depth_clearance",
-            )
-        ),
-        taper=p.key_taper,
-    )
-
-
-def _matrix(context: bpy.types.Context, position: Vector, normal: Vector) -> Matrix:
-    p = context.scene.silicone_casting
-    if not p.key_align_normal:
-        normal = Vector({"X": (1, 0, 0), "Y": (0, 1, 0), "Z": (0, 0, 1)}[p.key_axis])
-    if p.key_flip:
-        normal = -normal
-    return placement_matrix(position, normal, p.key_angle)
 
 
 def _ray(context: bpy.types.Context, xy: tuple[float, float]) -> tuple[Vector, Vector]:
@@ -157,10 +127,17 @@ def _lines(
 
 
 def _ghost(
-    context: bpy.types.Context, matrix: Matrix, *, window_coordinates: bool = False
+    context: bpy.types.Context,
+    position: Vector,
+    normal: Vector,
+    *,
+    window_coordinates: bool = False,
 ) -> None:
+    settings = KeySettings.from_context(context)
+    dimensions = settings.dimensions()
+    matrix = settings.placement(position, normal)
     for socket, color in ((False, (1.0, 0.5, 0.05, 1.0)), (True, (0.2, 0.7, 1.0, 1.0))):
-        vertices, faces = key_geometry(_dimensions(context), socket=socket)
+        vertices, faces = dimensions.geometry(socket=socket)
         edges = {
             (min(a, b), max(a, b))
             for face in faces
@@ -173,6 +150,21 @@ def _ghost(
             color,
             window_coordinates=window_coordinates,
         )
+
+
+def _outline(
+    context: bpy.types.Context,
+    obj: bpy.types.Object,
+    color: tuple[float, float, float, float],
+) -> None:
+    mesh = cast(bpy.types.Mesh, obj.data)
+    _lines(
+        context,
+        [obj.matrix_world @ v.co for v in mesh.vertices],
+        (cast(tuple[int, int], edge.vertices) for edge in mesh.edges),
+        color,
+        window_coordinates=True,
+    )
 
 
 class SILCAST_WST_registration_keys(bpy.types.WorkSpaceTool):
@@ -226,28 +218,11 @@ class SILCAST_WST_registration_keys(bpy.types.WorkSpaceTool):
                 and selected.parent == context.active_object
                 and is_registration_key(selected)
             ):
-                mesh = cast(bpy.types.Mesh, selected.data)
-                _lines(
-                    context,
-                    [selected.matrix_world @ v.co for v in mesh.vertices],
-                    (cast(tuple[int, int], e.vertices) for e in mesh.edges),
-                    (1.0, 0.5, 0.05, 1.0),
-                    window_coordinates=True,
-                )
+                _outline(context, selected, (1.0, 0.5, 0.05, 1.0))
             if key is not None:
-                mesh = cast(bpy.types.Mesh, key.data)
-                edges = [
-                    tuple(cast(Iterable[int], edge.vertices)) for edge in mesh.edges
-                ]
-                _lines(
-                    context,
-                    [key.matrix_world @ v.co for v in mesh.vertices],
-                    ((e[0], e[1]) for e in edges),
-                    (0.3, 1.0, 0.35, 1.0),
-                    window_coordinates=True,
-                )
+                _outline(context, key, (0.3, 1.0, 0.35, 1.0))
             elif hit is not None:
-                _ghost(context, _matrix(context, *hit), window_coordinates=True)
+                _ghost(context, *hit, window_coordinates=True)
         except (ValueError, RuntimeError, ReferenceError):
             # No geometry or invalid dimensions: the click operator reports it.
             return
@@ -366,7 +341,7 @@ class SILCAST_OT_place_key(bpy.types.Operator):
         context = bpy.context
         if context.area == self._area and self._valid:
             try:
-                _ghost(context, _matrix(context, self._position, self._normal))
+                _ghost(context, self._position, self._normal)
             except ValueError:
                 return
 
@@ -398,30 +373,33 @@ class SILCAST_OT_place_key(bpy.types.Operator):
             return {"RUNNING_MODAL"}
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
             self._finish()
-            if self._key_name and not self._moved:
-                return {"FINISHED"}
-            if not self._valid:
-                return {"CANCELLED"}
-            position = (self._position.x, self._position.y, self._position.z)
-            normal = (self._normal.x, self._normal.y, self._normal.z)
-            try:
-                if self._key_name:
-                    return cast(
-                        OperatorReturn,
-                        getattr(bpy.ops, "silicone_casting").move_registration_key(
-                            key_name=self._key_name, location=position, normal=normal
-                        ),
-                    )
+            return self._commit()
+        return {"RUNNING_MODAL"}
+
+    def _commit(self) -> OperatorReturn:
+        if self._key_name and not self._moved:
+            return {"FINISHED"}
+        if not self._valid:
+            return {"CANCELLED"}
+        position = (self._position.x, self._position.y, self._position.z)
+        normal = (self._normal.x, self._normal.y, self._normal.z)
+        try:
+            if self._key_name:
                 return cast(
                     OperatorReturn,
-                    getattr(bpy.ops, "silicone_casting").add_registration_key(
-                        location=position, normal=normal
+                    getattr(bpy.ops, "silicone_casting").move_registration_key(
+                        key_name=self._key_name, location=position, normal=normal
                     ),
                 )
-            except RuntimeError as exc:
-                self.report({"WARNING"}, str(exc))
-                return {"CANCELLED"}
-        return {"RUNNING_MODAL"}
+            return cast(
+                OperatorReturn,
+                getattr(bpy.ops, "silicone_casting").add_registration_key(
+                    location=position, normal=normal
+                ),
+            )
+        except RuntimeError as exc:
+            self.report({"WARNING"}, str(exc))
+            return {"CANCELLED"}
 
 
 def cancel_key_gesture() -> None:

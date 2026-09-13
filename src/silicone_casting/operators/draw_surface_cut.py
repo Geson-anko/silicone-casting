@@ -147,10 +147,16 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         self._area = area
         self._target = target
         self._selected = tuple(context.selected_objects or ())
-        evaluated = target.evaluated_get(context.evaluated_depsgraph_get())
+        if not self._prepare_surface(context):
+            return {"CANCELLED"}
+        self._start_drawing(context)
+        return {"RUNNING_MODAL"}
+
+    def _prepare_surface(self, context: bpy.types.Context) -> bool:
+        evaluated = self._target.evaluated_get(context.evaluated_depsgraph_get())
         mesh = evaluated.to_mesh()
         try:
-            points = [target.matrix_world @ vertex.co for vertex in mesh.vertices]
+            points = [self._target.matrix_world @ vertex.co for vertex in mesh.vertices]
             self._vertices = points
             self._faces = [
                 tuple(cast(Sequence[int], face.vertices)) for face in mesh.polygons
@@ -161,7 +167,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
                 self._edges.append((a, b))
             if not mesh.polygons or not points:
                 self.report({"WARNING"}, "Choose a mesh with faces to draw on")
-                return {"CANCELLED"}
+                return False
             low = Vector(tuple(min(p[i] for p in points) for i in range(3)))
             high = Vector(tuple(max(p[i] for p in points) for i in range(3)))
             self._size = (high - low).length
@@ -169,13 +175,14 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
             # miss the front face or hit the back. Draw with exact rays.
             self._bvh = BVHTree.FromPolygons(
                 [(p.x, p.y, p.z) for p in points],
-                [tuple(cast(Sequence[int], face.vertices)) for face in mesh.polygons],
+                self._faces,
             )
             self._snap_bvh = None
         finally:
             evaluated.to_mesh_clear()
-        if self._size <= 0:
-            return {"CANCELLED"}
+        return self._size > 0
+
+    def _start_drawing(self, context: bpy.types.Context) -> None:
         props = context.scene.silicone_casting
         self._thickness = mm_to_units(
             props.surface_cut_thickness_mm, context.scene.unit_settings.scale_length
@@ -188,7 +195,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         )
         preview_mesh = bpy.data.meshes.new("Cut Strokes")
         self._preview = bpy.data.objects.new("Cut Strokes", preview_mesh)
-        for collection in target.users_collection:
+        for collection in self._target.users_collection:
             collection.objects.link(self._preview)
         self._preview.display_type = "WIRE"
         self._preview.show_in_front = True
@@ -201,8 +208,8 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         self._drawing = False
         self._ready = False
         self._last_mouse = None
-        self._wire = target.show_wire
-        self._all_edges = target.show_all_edges
+        self._wire = self._target.show_wire
+        self._all_edges = self._target.show_all_edges
         self._input_mode = ""
         self._hover = None
         self._set_input_mode(props.surface_cut_input_mode)
@@ -213,7 +220,6 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         self._timer = context.window_manager.event_timer_add(0.1, window=context.window)
         context.window_manager.modal_handler_add(self)
         self._header()
-        return {"RUNNING_MODAL"}
 
     def _show_strokes(self) -> None:
         self._preview.display_type = "WIRE"
@@ -305,65 +311,11 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
             return
         try:
             if len(self._hover) == 2:
-                a, b = (self._vertices[i] for i in self._hover)
-                if loop or shortest:
-                    stroke = extend_edge_path(
-                        self._stroke,
-                        self._vertices,
-                        self._edges,
-                        self._faces,
-                        (self._hover[0], self._hover[1]),
-                        loop=loop,
-                        tolerance=self._size * 1e-6,
-                    )
-                else:
-                    stroke = extend_stroke_along_edge(
-                        self._stroke, a, b, self._size * 1e-6
-                    )
+                stroke = self._extend_to_edge(
+                    (self._hover[0], self._hover[1]), loop=loop, shortest=shortest
+                )
             else:
-                point = self._vertices[self._hover[0]]
-                if not self._stroke:
-                    stroke = [point.copy()]
-                else:
-                    start, end = self._project(self._stroke[-1]), self._project(point)
-                    if start is None or end is None:
-                        raise ValueError("Orbit until the stroke endpoint is visible")
-                    if (point - self._stroke[-1]).length < self._size * 1e-6:
-                        return
-                    origin, direction = self._ray(start)
-                    distance = (self._stroke[-1] - origin).dot(direction)
-                    if (
-                        self._bvh.ray_cast(
-                            origin, direction, max(0.0, distance - self._size * 1e-6)
-                        )[0]
-                        is not None
-                    ):
-                        raise ValueError("Orbit until the stroke endpoint is visible")
-
-                    def project(pixel: Vector) -> Vector | None:
-                        if (pixel - start).length < 1e-5:
-                            return self._stroke[-1].copy()
-                        if (pixel - end).length < 1e-5:
-                            return point.copy()
-                        return self._point(pixel)
-
-                    connected = any(
-                        self._hover[0] in edge
-                        and any(
-                            (self._vertices[i] - self._stroke[-1]).length
-                            < self._size * 1e-6
-                            for i in edge
-                        )
-                        for edge in self._edges
-                    )
-                    segment = (
-                        [self._stroke[-1], point.copy()]
-                        if connected
-                        else project_straight_segment(
-                            start, end, project, self._size * 0.04
-                        )
-                    )
-                    stroke = [*self._stroke, *segment[1:]]
+                stroke = self._extend_to_vertex(self._hover[0])
         except ValueError as error:
             self._header(str(error))
             return
@@ -373,6 +325,67 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         self._stroke = stroke
         self._show_strokes()
         self._header()
+
+    def _extend_to_edge(
+        self, edge: tuple[int, int], *, loop: bool, shortest: bool
+    ) -> list[Vector]:
+        if loop or shortest:
+            return extend_edge_path(
+                self._stroke,
+                self._vertices,
+                self._edges,
+                self._faces,
+                edge,
+                loop=loop,
+                tolerance=self._size * 1e-6,
+            )
+        a, b = (self._vertices[i] for i in edge)
+        return extend_stroke_along_edge(self._stroke, a, b, self._size * 1e-6)
+
+    def _extend_to_vertex(self, index: int) -> list[Vector]:
+        point = self._vertices[index]
+        if not self._stroke:
+            return [point.copy()]
+        start, end = self._project(self._stroke[-1]), self._project(point)
+        if start is None or end is None:
+            raise ValueError("Orbit until the stroke endpoint is visible")
+        if (point - self._stroke[-1]).length < self._size * 1e-6:
+            return self._stroke
+        origin, direction = self._ray(start)
+        distance = (self._stroke[-1] - origin).dot(direction)
+        if (
+            self._bvh.ray_cast(
+                origin, direction, max(0.0, distance - self._size * 1e-6)
+            )[0]
+            is not None
+        ):
+            raise ValueError("Orbit until the stroke endpoint is visible")
+        connected = any(
+            index in edge
+            and any(
+                (self._vertices[i] - self._stroke[-1]).length < self._size * 1e-6
+                for i in edge
+            )
+            for edge in self._edges
+        )
+        segment = (
+            [self._stroke[-1], point.copy()]
+            if connected
+            else self._project_vertex_segment(start, end, point)
+        )
+        return [*self._stroke, *segment[1:]]
+
+    def _project_vertex_segment(
+        self, start: Vector, end: Vector, point: Vector
+    ) -> list[Vector]:
+        def project(pixel: Vector) -> Vector | None:
+            if (pixel - start).length < 1e-5:
+                return self._stroke[-1].copy()
+            if (pixel - end).length < 1e-5:
+                return point.copy()
+            return self._point(pixel)
+
+        return project_straight_segment(start, end, project, self._size * 0.04)
 
     def _append_point(self, mouse: Vector) -> bool:
         point = self._point(mouse)
@@ -582,35 +595,45 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
             self._last_mouse = None
             return navigation
         if event.type == "BACK_SPACE" and event.value == "PRESS":
-            self._drawing = False
-            if self._ready:
-                self._ready = False
-                self._preview.vertex_groups.clear()
-            elif self._stroke:
-                self._remember()
-                self._stroke = []
-            elif self._loops:
-                self._remember()
-                self._stroke = self._loops.pop()
-            self._show_strokes()
-            self._header()
+            self._remove_last_stroke()
         if self._ready:
             if event.type in {"RET", "NUMPAD_ENTER"} and event.value == "PRESS":
-                create_surface_cut(
-                    self._target,
-                    self._preview,
-                    self._thickness,
-                    minimum_thickness=self._minimum,
-                )
-                self._preview.name = f"{self._target.name}.Cutting Surface"
-                self._cleanup(keep_surface=True)
-                context.view_layer.objects.active = self._target
-                self.report(
-                    {"INFO"},
-                    "Surface Cut added. Use Edit Cutting Surface to shape its interior",
-                )
-                return {"FINISHED"}
+                return self._finish(context)
             return {"RUNNING_MODAL"}
+        self._draw_event(event)
+        return {"RUNNING_MODAL"}
+
+    def _remove_last_stroke(self) -> None:
+        self._drawing = False
+        if self._ready:
+            self._ready = False
+            self._preview.vertex_groups.clear()
+        elif self._stroke:
+            self._remember()
+            self._stroke = []
+        elif self._loops:
+            self._remember()
+            self._stroke = self._loops.pop()
+        self._show_strokes()
+        self._header()
+
+    def _finish(self, context: bpy.types.Context) -> OperatorReturn:
+        create_surface_cut(
+            self._target,
+            self._preview,
+            self._thickness,
+            minimum_thickness=self._minimum,
+        )
+        self._preview.name = f"{self._target.name}.Cutting Surface"
+        self._cleanup(keep_surface=True)
+        context.view_layer.objects.active = self._target
+        self.report(
+            {"INFO"},
+            "Surface Cut added. Use Edit Cutting Surface to shape its interior",
+        )
+        return {"FINISHED"}
+
+    def _draw_event(self, event: bpy.types.Event) -> None:
         if event.type == "S" and event.value == "PRESS":
             self._drawing = False
             self._last_mouse = None
@@ -622,35 +645,36 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
             self._drawing = False
             self._close_loop()
         elif event.type == "LEFTMOUSE":
-            mouse = Vector(
-                (event.mouse_x - self._region.x, event.mouse_y - self._region.y)
-            )
-            if event.value == "PRESS":
-                if self._input_mode != "FREEHAND":
-                    self._snap_click(mouse, loop=event.alt, shortest=event.ctrl)
-                    return {"RUNNING_MODAL"}
-                if event.ctrl:
-                    self._drawing = False
-                    self._last_mouse = None
-                    self._straight_line(mouse)
-                    self._show_strokes()
-                    return {"RUNNING_MODAL"}
-                self._remember()
-                self._drawing = self._append_point(mouse)
-                self._last_mouse = (mouse.x, mouse.y) if self._drawing else None
-                self._show_strokes()
-            elif event.value == "RELEASE":
+            self._mouse_button(event)
+        elif event.type == "MOUSEMOVE":
+            self._move_mouse(event)
+
+    def _mouse_button(self, event: bpy.types.Event) -> None:
+        mouse = Vector((event.mouse_x - self._region.x, event.mouse_y - self._region.y))
+        if event.value == "PRESS":
+            if self._input_mode != "FREEHAND":
+                self._snap_click(mouse, loop=event.alt, shortest=event.ctrl)
+                return
+            if event.ctrl:
                 self._drawing = False
                 self._last_mouse = None
-        elif event.type == "MOUSEMOVE" and self._input_mode != "FREEHAND":
-            self._hover = self._pick(
-                Vector((event.mouse_x - self._region.x, event.mouse_y - self._region.y))
-            )
+                self._straight_line(mouse)
+                self._show_strokes()
+                return
+            self._remember()
+            self._drawing = self._append_point(mouse)
+            self._last_mouse = (mouse.x, mouse.y) if self._drawing else None
+            self._show_strokes()
+        elif event.value == "RELEASE":
+            self._drawing = False
+            self._last_mouse = None
+
+    def _move_mouse(self, event: bpy.types.Event) -> None:
+        mouse = Vector((event.mouse_x - self._region.x, event.mouse_y - self._region.y))
+        if self._input_mode != "FREEHAND":
+            self._hover = self._pick(mouse)
             self._area.tag_redraw()
-        elif event.type == "MOUSEMOVE" and self._drawing:
-            mouse = Vector(
-                (event.mouse_x - self._region.x, event.mouse_y - self._region.y)
-            )
+        elif self._drawing:
             previous = self._last_mouse
             if previous is not None:
                 previous_point = Vector(previous)
@@ -661,7 +685,6 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
                         break
             self._last_mouse = (mouse.x, mouse.y)
             self._show_strokes()
-        return {"RUNNING_MODAL"}
 
 
 def cancel_surface_drawing() -> None:

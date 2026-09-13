@@ -5,25 +5,15 @@ from typing import TYPE_CHECKING, Protocol, cast, override
 import bpy
 from mathutils import Matrix, Vector
 
-from ..core.registration_keys import KeyDimensions, create_key_mesh, placement_matrix
-from ..core.units import mm_to_units
 from ._operator import OperatorReturn
-from .registration_keys import validate_key_modifier
-
-_FIELDS = (
-    "key_shape",
-    "key_width_mm",
-    "key_length_mm",
-    "key_height_mm",
-    "key_embed_mm",
-    "key_clearance_mm",
-    "key_depth_clearance_mm",
-    "key_taper",
-    "key_angle",
-    "key_align_normal",
-    "key_flip",
-    "key_axis",
+from .registration_keys import (
+    KeySettings,
+    add_key_modifier,
+    create_key_operand,
+    remove_key_operand,
+    validate_key_modifier,
 )
+
 _SOCKET = "silcast_key_socket"
 _NORMAL = "silcast_key_normal"
 
@@ -54,65 +44,26 @@ def load_key_settings(context: bpy.types.Context, pin: bpy.types.Object) -> None
     if not is_registration_key(pin):
         raise ValueError("Select a registration key")
     props = _settings(context)
-    for name in _FIELDS:
-        setattr(props, name, pin[name])
+    KeySettings.from_pin(
+        pin, scale_length=context.scene.unit_settings.scale_length
+    ).restore(context)
     socket = key_socket(pin)
     assert socket is not None
     props.key_mate = socket.parent
     props.key_active = pin
 
 
-def _values(context: bpy.types.Context) -> dict[str, str | float | bool]:
-    props = _settings(context)
-    return {name: getattr(props, name) for name in _FIELDS}
-
-
-def _dimensions(
-    context: bpy.types.Context, values: dict[str, str | float | bool]
-) -> KeyDimensions:
-    lengths = [
-        mm_to_units(float(values[name]), context.scene.unit_settings.scale_length)
-        for name in _FIELDS[1:7]
-    ]
-    dimensions = KeyDimensions(
-        str(values["key_shape"]), *lengths, taper=float(values["key_taper"])
-    )
-    dimensions.validate()
-    return dimensions
-
-
-def _frame(
-    location: Vector, normal: Vector, values: dict[str, str | float | bool]
-) -> Matrix:
-    direction = normal.copy()
-    if not values["key_align_normal"]:
-        direction = Vector(
-            {"X": (1, 0, 0), "Y": (0, 1, 0), "Z": (0, 0, 1)}[str(values["key_axis"])]
-        )
-    if values["key_flip"]:
-        direction.negate()
-    return placement_matrix(location, direction, float(values["key_angle"]))
-
-
 def _record(
     pin: bpy.types.Object,
     socket: bpy.types.Object,
     normal: Vector,
-    values: dict[str, str | float | bool],
+    settings: KeySettings,
 ) -> None:
     assert pin.parent is not None
     pin[_SOCKET] = socket
     local_normal = pin.parent.matrix_world.to_3x3().transposed() @ normal
     pin[_NORMAL] = (local_normal.x, local_normal.y, local_normal.z)
-    for name, value in values.items():
-        pin[name] = value
-
-
-def _remove_operand(obj: bpy.types.Object) -> None:
-    mesh = cast(bpy.types.Mesh, obj.data)
-    bpy.data.objects.remove(obj, do_unlink=True)
-    if mesh.users == 0:
-        bpy.data.meshes.remove(mesh)
+    settings.store(pin)
 
 
 def _modifier(
@@ -140,7 +91,7 @@ def _update(
     pin: bpy.types.Object,
     matrix: Matrix,
     normal: Vector,
-    values: dict[str, str | float | bool],
+    settings: KeySettings,
 ) -> None:
     socket = key_socket(pin)
     assert socket is not None
@@ -149,7 +100,7 @@ def _update(
         raise ValueError("Both mold halves must still exist")
     targets = [cast(bpy.types.Object, obj.parent) for obj in operands]
     modifiers = [_modifier(target, obj) for target, obj in zip(targets, operands)]
-    dimensions = _dimensions(context, values)
+    dimensions = settings.dimensions()
     if normal.length_squared < 1e-20:
         raise ValueError("Surface normal must be nonzero")
     old_meshes = [cast(bpy.types.Mesh, obj.data) for obj in operands]
@@ -157,7 +108,7 @@ def _update(
     new_meshes: list[bpy.types.Mesh] = []
     try:
         for obj, is_socket in zip(operands, (False, True)):
-            mesh = create_key_mesh(obj.name, dimensions, socket=is_socket)
+            mesh = dimensions.create_mesh(obj.name, socket=is_socket)
             new_meshes.append(mesh)
             obj.data = mesh
             obj.matrix_world = matrix
@@ -176,7 +127,7 @@ def _update(
     for mesh in old_meshes:
         if mesh.users == 0:
             bpy.data.meshes.remove(mesh)
-    _record(pin, socket, normal, values)
+    _record(pin, socket, normal, settings)
     _settings(context).key_active = pin
 
 
@@ -226,37 +177,25 @@ class SILCAST_OT_add_registration_key(bpy.types.Operator):
         created: list[bpy.types.Object] = []
         modifiers: list[tuple[bpy.types.Object, bpy.types.Modifier]] = []
         try:
-            values = _values(context)
-            dimensions = _dimensions(context, values)
+            settings = KeySettings.from_context(context)
+            dimensions = settings.dimensions()
             normal = Vector(self.normal)
             if normal.length_squared < 1e-20:
                 raise ValueError("Surface normal must be nonzero")
-            matrix = _frame(Vector(self.location), normal, values)
+            matrix = settings.placement(Vector(self.location), normal)
             for half, socket in ((target, False), (mate, True)):
-                mesh = create_key_mesh(
-                    "Registration Socket" if socket else "Registration Pin",
-                    dimensions,
-                    socket=socket,
-                )
-                operand = bpy.data.objects.new(mesh.name, mesh)
+                operand = create_key_operand(context, dimensions, socket=socket)
                 created.append(operand)
-                context.scene.collection.objects.link(operand)
                 operand.parent = half
                 operand.matrix_world = matrix
-                operand.hide_render = True
-                operand.hide_select = True
-                modifier = cast(
-                    bpy.types.BooleanModifier,
-                    half.modifiers.new("Registration Key", "BOOLEAN"),
+                modifier = add_key_modifier(
+                    half, operand, "DIFFERENCE" if socket else "UNION"
                 )
                 modifiers.append((half, modifier))
-                modifier.operation = "DIFFERENCE" if socket else "UNION"
-                modifier.solver = "EXACT"
-                modifier.object = operand
                 context.view_layer.update()
                 validate_key_modifier(context, half, operand, modifier)
             pin, socket_obj = created
-            _record(pin, socket_obj, normal, values)
+            _record(pin, socket_obj, normal, settings)
             for operand in created:
                 operand.hide_set(True)
             _settings(context).key_active = pin
@@ -264,7 +203,7 @@ class SILCAST_OT_add_registration_key(bpy.types.Operator):
             for half, modifier in reversed(modifiers):
                 half.modifiers.remove(modifier)
             for operand in created:
-                _remove_operand(operand)
+                remove_key_operand(operand)
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
         return {"FINISHED"}
@@ -295,10 +234,12 @@ class SILCAST_OT_move_registration_key(bpy.types.Operator):
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
         try:
             pin = _pin(context, self.key_name)
-            values = {name: pin[name] for name in _FIELDS}
+            settings = KeySettings.from_pin(
+                pin, scale_length=context.scene.unit_settings.scale_length
+            )
             normal = Vector(self.normal)
-            matrix = _frame(Vector(self.location), normal, values)
-            _update(context, pin, matrix, normal, values)
+            matrix = settings.placement(Vector(self.location), normal)
+            _update(context, pin, matrix, normal, settings)
             load_key_settings(context, pin)
         except (ValueError, RuntimeError) as exc:
             self.report({"ERROR"}, str(exc))
@@ -328,33 +269,9 @@ class SILCAST_OT_edit_registration_key(bpy.types.Operator):
                 pin.parent.matrix_world.to_3x3().inverted_safe().transposed()
                 @ Vector(pin[_NORMAL])
             )
-            values = _values(context)
-            location = pin.matrix_world.translation.copy()
-            matrix = _frame(location, normal, values)
-            if (
-                values["key_align_normal"]
-                and pin["key_align_normal"]
-                and values["key_flip"] == pin["key_flip"]
-            ):
-                # Preserve the tangent carried by the half's transform. Rebuild
-                # a rigid frame so dimensions remain physical lengths even if
-                # the parent was scaled, then apply only the angle change.
-                z = matrix.to_3x3() @ Vector((0, 0, 1))
-                x = pin.matrix_world.to_3x3() @ Vector((1, 0, 0))
-                x = (x - z * x.dot(z)).normalized()
-                y = cast(Vector, z.cross(x))
-                rotation = (
-                    Matrix(((x.x, x.y, x.z), (y.x, y.y, y.z), (z.x, z.y, z.z)))
-                    .transposed()
-                    .to_4x4()
-                )
-                angle_change = float(values["key_angle"]) - float(pin["key_angle"])
-                matrix = (
-                    Matrix.Translation((location.x, location.y, location.z))
-                    @ rotation
-                    @ Matrix.Rotation(angle_change, 4, "Z")
-                )
-            _update(context, pin, matrix, normal, values)
+            settings = KeySettings.from_context(context)
+            matrix = settings.edited_placement(pin, normal)
+            _update(context, pin, matrix, normal, settings)
         except (ValueError, RuntimeError) as exc:
             self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
@@ -392,5 +309,5 @@ class SILCAST_OT_delete_registration_key(bpy.types.Operator):
                         and modifier.object == operand
                     ):
                         parent.modifiers.remove(modifier)
-            _remove_operand(operand)
+            remove_key_operand(operand)
         return {"FINISHED"}

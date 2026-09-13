@@ -10,13 +10,14 @@ import bpy
 if TYPE_CHECKING:
     from bpy.types import bpy_prop_array
 
-from ..core import MixtureBreakdown, calculate_mixture, format_grams, format_ml
+from ..core import MixtureBreakdown, format_grams, format_ml
 from ..operators import (
     SILCAST_OT_add_mixture_part,
     SILCAST_OT_move_mixture_parts,
     SILCAST_OT_remove_mixture_parts,
     SILCAST_OT_select_mixture_part,
 )
+from ._layout import draw_recipe_exchange, table_cells
 
 # Relative widths keep the whole table responsive while reserving most of the
 # flexible space for the editable part name. Selection and Enabled stay compact.
@@ -58,18 +59,7 @@ def _mixture_table_cells(
     layout: bpy.types.UILayout,
 ) -> tuple[bpy.types.UILayout, ...]:
     """Return responsive table cells using the shared column proportions."""
-    remaining = layout.row(align=True)
-    remaining_weight = sum(_MIXTURE_COLUMN_WEIGHTS)
-    cells: list[bpy.types.UILayout] = []
-
-    for weight in _MIXTURE_COLUMN_WEIGHTS[:-1]:
-        split = remaining.split(factor=weight / remaining_weight, align=True)
-        cells.append(split.column(align=True))
-        remaining = split.column(align=True)
-        remaining_weight -= weight
-
-    cells.append(remaining)
-    return tuple(cells)
+    return table_cells(layout, _MIXTURE_COLUMN_WEIGHTS)
 
 
 def _mixture_breakdown(props: _MixtureSettings, volume_ml: float) -> MixtureBreakdown:
@@ -79,7 +69,7 @@ def _mixture_breakdown(props: _MixtureSettings, volume_ml: float) -> MixtureBrea
         if props.mixture_use_shared_density
         else props.mixture_density_b_g_per_ml
     )
-    return calculate_mixture(
+    return MixtureBreakdown.from_volume(
         volume_ml,
         props.mixture_density_a_g_per_ml,
         density_b,
@@ -200,17 +190,8 @@ def _filter_mixture_parts_by_name(
     )
 
 
-def draw_mixture_calculator(
-    layout: bpy.types.UILayout, props: _MixtureSettings
-) -> None:
-    """Draw the saved settings and wide, manually entered mixture table."""
-    exchange = layout.row(align=True)
-    exchange.operator(
-        "silicone_casting.export_recipes", text="Export JSON", icon="EXPORT"
-    ).kind = "MIXTURE"
-    exchange.operator(
-        "silicone_casting.import_recipes", text="Import JSON", icon="IMPORT"
-    ).kind = "MIXTURE"
+def _draw_mixture_settings(layout: bpy.types.UILayout, props: _MixtureSettings) -> None:
+    """Draw the density mode and the A:B weight ratio."""
     settings = layout.box()
     density = settings.row(align=True)
     density.prop(props, "mixture_use_shared_density")
@@ -228,22 +209,9 @@ def draw_mixture_calculator(
     ratio.prop(props, "mixture_ratio_a", text="Ratio A")
     ratio.prop(props, "mixture_ratio_b", text="Ratio B")
 
-    guidance = layout.row(align=True)
-    guidance.label(text="Select row numbers with Click / Ctrl / Shift")
-    guidance.label(text="Volumes: mL / Weights: g")
-    _draw_mixture_header(layout)
-    layout.template_list(
-        SILCAST_UL_mixture_parts.bl_idname,
-        "mixture_parts",
-        props,
-        "mixture_parts",
-        props,
-        "mixture_active_index",
-        rows=6,
-        maxrows=10,
-    )
 
-    any_selected = any(part.selected for part in props.mixture_parts)
+def _draw_mixture_controls(layout: bpy.types.UILayout, any_selected: bool) -> None:
+    """Add rows and enable removal or movement for the selected rows."""
     controls = layout.row(align=True)
     controls.operator(SILCAST_OT_add_mixture_part.bl_idname, text="", icon="ADD")
     selected_controls = controls.row(align=True)
@@ -265,6 +233,31 @@ def draw_mixture_calculator(
         icon="TRIA_DOWN",
     )
     move_down.direction = "DOWN"
+
+
+def draw_mixture_calculator(
+    layout: bpy.types.UILayout, props: _MixtureSettings
+) -> None:
+    """Draw the saved settings and wide, manually entered mixture table."""
+    draw_recipe_exchange(layout, "MIXTURE")
+    _draw_mixture_settings(layout, props)
+    guidance = layout.row(align=True)
+    guidance.label(text="Select row numbers with Click / Ctrl / Shift")
+    guidance.label(text="Volumes: mL / Weights: g")
+    _draw_mixture_header(layout)
+    layout.template_list(
+        SILCAST_UL_mixture_parts.bl_idname,
+        "mixture_parts",
+        props,
+        "mixture_parts",
+        props,
+        "mixture_active_index",
+        rows=6,
+        maxrows=10,
+    )
+
+    any_selected = any(part.selected for part in props.mixture_parts)
+    _draw_mixture_controls(layout, any_selected)
 
     if any_selected:
         selected_volume = _included_mixture_volume(props, selected_only=True)

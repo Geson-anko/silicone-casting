@@ -23,6 +23,7 @@ from ..operators.color_simulator import (
     active_color_profile,
     calculate_profile_appearance,
 )
+from ._layout import draw_recipe_exchange, table_cells
 
 
 def _colorant_table_cells(
@@ -30,16 +31,7 @@ def _colorant_table_cells(
 ) -> tuple[bpy.types.UILayout, ...]:
     """Keep dye headings and editable rows in the same responsive columns."""
     weights = (0.55, 1.2, 2.5, 2.0, 2.0, 2.8, 2.2)
-    remaining = layout.row(align=True)
-    remaining_weight = sum(weights)
-    cells: list[bpy.types.UILayout] = []
-    for weight in weights[:-1]:
-        split = remaining.split(factor=weight / remaining_weight, align=True)
-        cells.append(split.column(align=True))
-        remaining = split.column(align=True)
-        remaining_weight -= weight
-    cells.append(remaining)
-    return tuple(cells)
+    return table_cells(layout, weights)
 
 
 class SILCAST_UL_color_profiles(bpy.types.UIList):
@@ -108,13 +100,7 @@ def _draw_profile_selector(
     layout: bpy.types.UILayout,
     scene_settings: bpy.types.PropertyGroup,
 ) -> None:
-    exchange = layout.row(align=True)
-    exchange.operator(
-        "silicone_casting.export_recipes", text="Export JSON", icon="EXPORT"
-    ).kind = "COLORS"
-    exchange.operator(
-        "silicone_casting.import_recipes", text="Import JSON", icon="IMPORT"
-    ).kind = "COLORS"
+    draw_recipe_exchange(layout, "COLORS")
     profiles = layout.box()
     profiles.label(text="1. Choose a Named Profile")
     profile_row = profiles.row()
@@ -176,7 +162,17 @@ def _draw_colorants(
         text="Calibration Drops / mL: measured color/opacity point (1.0 estimate)",
         icon="INFO",
     )
-    header = colorants.row()
+    _draw_colorant_list(colorants, profile)
+    if 0 <= profile.colorant_active_index < len(profile.colorants):
+        selected = profile.colorants[profile.colorant_active_index]
+        _draw_colorant_editor(colorants, selected)
+
+
+def _draw_colorant_list(
+    layout: bpy.types.UILayout, profile: ColorProfileValues
+) -> None:
+    """Draw the calibrated doses with aligned headings and row controls."""
+    header = layout.row()
     for cell, text in zip(
         _colorant_table_cells(header),
         (
@@ -192,7 +188,7 @@ def _draw_colorants(
     ):
         cell.label(text=text)
     header.column().label(text="", icon="BLANK1")
-    colorant_row = colorants.row()
+    colorant_row = layout.row()
     profile_properties = cast(bpy.types.PropertyGroup, profile)
     colorant_row.template_list(
         SILCAST_UL_colorants.bl_idname,
@@ -215,28 +211,29 @@ def _draw_colorants(
         icon="REMOVE",
     )
 
-    if 0 <= profile.colorant_active_index < len(profile.colorants):
-        selected = profile.colorants[profile.colorant_active_index]
-        editor = colorants.box()
-        editor.label(text=f"Edit Selected Dye Color: {selected.colorant_name}")
-        edit_row = editor.row()
-        picker = edit_row.column(align=True)
-        picker.template_color_picker(
-            selected,
-            "calibration_color",
-            value_slider=True,
-        )
-        values = edit_row.column(align=True)
-        preview = values.row()
-        preview.scale_y = 1.4
-        preview.prop(selected, "calibration_color", text="Color")
-        values.prop(selected, "calibration_hex", text="Hex (sRGB)")
-        values.prop(selected, "calibration_hue_degrees", text="Hue (degrees)")
-        values.prop(
-            selected,
-            "calibration_lightness_percent",
-            text="Lightness (%)",
-        )
+
+def _draw_colorant_editor(layout: bpy.types.UILayout, selected: ColorantValues) -> None:
+    """Draw the picker and alternate inputs for the selected dye."""
+    editor = layout.box()
+    editor.label(text=f"Edit Selected Dye Color: {selected.colorant_name}")
+    edit_row = editor.row()
+    picker = edit_row.column(align=True)
+    picker.template_color_picker(
+        selected,
+        "calibration_color",
+        value_slider=True,
+    )
+    values = edit_row.column(align=True)
+    preview = values.row()
+    preview.scale_y = 1.4
+    preview.prop(selected, "calibration_color", text="Color")
+    values.prop(selected, "calibration_hex", text="Hex (sRGB)")
+    values.prop(selected, "calibration_hue_degrees", text="Hue (degrees)")
+    values.prop(
+        selected,
+        "calibration_lightness_percent",
+        text="Lightness (%)",
+    )
 
 
 def _draw_color_result(

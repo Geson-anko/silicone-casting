@@ -92,6 +92,12 @@ class SILCAST_OT_draw_air_vents(bpy.types.Operator):
         self._targets = tuple(
             obj for obj in context.selected_objects or () if obj.type == "MESH"
         )
+        if not self._prepare_surface(context):
+            return {"CANCELLED"}
+        self._start_drawing(context)
+        return {"RUNNING_MODAL"}
+
+    def _prepare_surface(self, context: bpy.types.Context) -> bool:
         vertices: list[tuple[float, float, float]] = []
         faces: list[tuple[int, ...]] = []
         depsgraph = context.evaluated_depsgraph_get()
@@ -111,8 +117,11 @@ class SILCAST_OT_draw_air_vents(bpy.types.Operator):
                 evaluated.to_mesh_clear()
         if not faces:
             self.report({"WARNING"}, "Choose meshes with faces to draw on")
-            return {"CANCELLED"}
+            return False
         self._bvh = BVHTree.FromPolygons(vertices, faces)
+        return True
+
+    def _start_drawing(self, context: bpy.types.Context) -> None:
         self._origin = None
         self._normal = Vector((0, 0, 1))
         self._paths, self._history, self._future = [], [], []
@@ -131,7 +140,6 @@ class SILCAST_OT_draw_air_vents(bpy.types.Operator):
         _drawing_navigation.active_drawing = self
         context.window_manager.modal_handler_add(self)
         self._header()
-        return {"RUNNING_MODAL"}
 
     def _point(self, mouse: Vector) -> Vector | None:
         xy = (mouse.x, mouse.y)
@@ -243,79 +251,90 @@ class SILCAST_OT_draw_air_vents(bpy.types.Operator):
             and (event.ctrl or event.oskey)
             and event.type in {"Z", "Y"}
         ):
-            self._drawing = False
-            redo = event.type == "Y" or event.shift
-            source, destination = (
-                (self._future, self._history) if redo else (self._history, self._future)
-            )
-            if source:
-                destination.append(self._paths)
-                self._paths = source.pop()
-                self._rebuild()
+            self._restore_history(redo=event.type == "Y" or event.shift)
         elif event.type == "BACK_SPACE" and event.value == "PRESS":
-            self._drawing = False
-            if self._paths:
-                self._remember()
-                self._paths.pop()
-                self._rebuild()
+            self._remove_last_path()
         elif event.type == "S" and event.value == "PRESS" and self._paths:
-            self._drawing = False
-            self._remember()
-            self._paths[-1] = smooth_vent_path(
-                simplify_vent_path(self._paths[-1], self._diameter * 0.05)
-            )
-            self._rebuild()
+            self._smooth_last_path()
         elif event.type in {"RET", "NUMPAD_ENTER"} and event.value == "PRESS":
-            self._drawing = False
-            self._rebuild()
-            if self._valid:
-                add_air_vent_cutters(self._targets, self._preview)
-                self._preview.name = f"{self._targets[0].name}.Air Vents"
-                self._preview.hide_select = False
-                self._preview.show_in_front = False
-                self._cleanup(keep_cutter=True)
-                self.report({"INFO"}, f"Added air vents to {len(self._targets)} meshes")
-                return {"FINISHED"}
+            return self._finish()
         elif event.type == "LEFTMOUSE":
-            mouse = Vector(
-                (event.mouse_x - self._region.x, event.mouse_y - self._region.y)
-            )
-            if event.value == "PRESS":
-                point = self._point(mouse)
-                if point is not None:
-                    self._remember()
-                    if event.ctrl and self._paths:
-                        self._paths[-1].append(point)
-                        self._drawing = False
-                    else:
-                        self._paths.append([point])
-                        self._drawing = True
-                    self._last_mouse = (mouse.x, mouse.y)
-                    self._rebuild()
-            elif event.value == "RELEASE":
-                if self._drawing:
-                    point = self._point(mouse)
-                    if (
-                        point is not None
-                        and (point - self._paths[-1][-1]).length > self._diameter * 1e-6
-                    ):
-                        self._paths[-1].append(point)
-                    self._rebuild()
-                self._drawing = False
+            self._mouse_button(event)
         elif event.type == "MOUSEMOVE" and self._drawing:
-            mouse = Vector(
-                (event.mouse_x - self._region.x, event.mouse_y - self._region.y)
-            )
-            if (
-                self._last_mouse is None
-                or (mouse - Vector(self._last_mouse)).length >= 3
-            ):
-                point = self._point(mouse)
-                if point is not None:
-                    self._paths[-1].append(point)
-                    self._last_mouse = (mouse.x, mouse.y)
-                    self._rebuild()
+            self._drag_mouse(event)
         return {"RUNNING_MODAL"}
+
+    def _restore_history(self, *, redo: bool) -> None:
+        self._drawing = False
+        source, destination = (
+            (self._future, self._history) if redo else (self._history, self._future)
+        )
+        if source:
+            destination.append(self._paths)
+            self._paths = source.pop()
+            self._rebuild()
+
+    def _remove_last_path(self) -> None:
+        self._drawing = False
+        if self._paths:
+            self._remember()
+            self._paths.pop()
+            self._rebuild()
+
+    def _smooth_last_path(self) -> None:
+        self._drawing = False
+        self._remember()
+        self._paths[-1] = smooth_vent_path(
+            simplify_vent_path(self._paths[-1], self._diameter * 0.05)
+        )
+        self._rebuild()
+
+    def _finish(self) -> OperatorReturn:
+        self._drawing = False
+        self._rebuild()
+        if not self._valid:
+            return {"RUNNING_MODAL"}
+        add_air_vent_cutters(self._targets, self._preview)
+        self._preview.name = f"{self._targets[0].name}.Air Vents"
+        self._preview.hide_select = False
+        self._preview.show_in_front = False
+        self._cleanup(keep_cutter=True)
+        self.report({"INFO"}, f"Added air vents to {len(self._targets)} meshes")
+        return {"FINISHED"}
+
+    def _mouse_button(self, event: bpy.types.Event) -> None:
+        mouse = Vector((event.mouse_x - self._region.x, event.mouse_y - self._region.y))
+        if event.value == "PRESS":
+            point = self._point(mouse)
+            if point is not None:
+                self._remember()
+                if event.ctrl and self._paths:
+                    self._paths[-1].append(point)
+                    self._drawing = False
+                else:
+                    self._paths.append([point])
+                    self._drawing = True
+                self._last_mouse = (mouse.x, mouse.y)
+                self._rebuild()
+        elif event.value == "RELEASE":
+            if self._drawing:
+                point = self._point(mouse)
+                if (
+                    point is not None
+                    and (point - self._paths[-1][-1]).length > self._diameter * 1e-6
+                ):
+                    self._paths[-1].append(point)
+                self._rebuild()
+            self._drawing = False
+
+    def _drag_mouse(self, event: bpy.types.Event) -> None:
+        mouse = Vector((event.mouse_x - self._region.x, event.mouse_y - self._region.y))
+        if self._last_mouse is None or (mouse - Vector(self._last_mouse)).length >= 3:
+            point = self._point(mouse)
+            if point is not None:
+                self._paths[-1].append(point)
+                self._last_mouse = (mouse.x, mouse.y)
+                self._rebuild()
 
 
 def cancel_air_vent_drawing() -> None:

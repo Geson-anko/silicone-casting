@@ -13,6 +13,7 @@ caller receives object *names* and decides how to phrase them.
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Self
 
 # The PyPI `bpy` wheel registers `bmesh` as a builtin module from inside
 # bpy's own C initialiser, so a bare `import bmesh` raises
@@ -43,6 +44,40 @@ class VolumeSummary:
     #: Names of the mesh objects that were not watertight, in the order
     #: they were encountered.
     non_watertight_names: tuple[str, ...]
+
+    @classmethod
+    def from_objects(
+        cls, objects: Iterable[bpy.types.Object], depsgraph: bpy.types.Depsgraph
+    ) -> Self:
+        """Measure a group, collecting volumes and non-watertight object names.
+
+        Non-mesh objects are skipped silently and counted nowhere. Meshes that
+        are not watertight contribute their name instead of a number, which lets
+        the caller refuse to report a partial total.
+
+        Args:
+            objects: Objects to walk once. May contain non-mesh objects, so a
+                selection can be passed straight through. Each element must
+                be linked into the view layer.
+            depsgraph: Dependency graph shared by every measurement.
+        """
+        volume = 0.0
+        measured_count = 0
+        non_watertight_names: list[str] = []
+        for obj in objects:
+            if obj.type != "MESH":
+                continue
+            measured = world_volume(obj, depsgraph)
+            if measured is None:
+                non_watertight_names.append(obj.name)
+                continue
+            volume += measured
+            measured_count += 1
+        return cls(
+            volume=volume,
+            measured_count=measured_count,
+            non_watertight_names=tuple(non_watertight_names),
+        )
 
 
 def world_volume(obj: bpy.types.Object, depsgraph: bpy.types.Depsgraph) -> float | None:
@@ -97,37 +132,6 @@ def world_volume(obj: bpy.types.Object, depsgraph: bpy.types.Depsgraph) -> float
 def total_volume(
     objects: Iterable[bpy.types.Object], depsgraph: bpy.types.Depsgraph
 ) -> VolumeSummary:
-    """Sum the world-space volumes of *objects*.
-
-    Non-mesh objects are skipped silently and counted nowhere: only a
-    mesh object has a volume, and having a camera or a light in the
-    selection is an everyday situation rather than a mistake. Meshes
-    that are not watertight contribute their name instead of a number,
-    which lets the caller refuse to report a partial total.
-
-    Args:
-        objects: Objects to walk. May contain non-mesh objects, so a
-            selection can be passed straight through. Each element must
-            be linked into the view layer.
-        depsgraph: Dependency graph shared by every measurement.
-
-    Returns:
-        A :class:`VolumeSummary` covering the whole group.
-    """
-    volume = 0.0
-    measured_count = 0
-    non_watertight_names: list[str] = []
-    for obj in objects:
-        if obj.type != "MESH":
-            continue
-        measured = world_volume(obj, depsgraph)
-        if measured is None:
-            non_watertight_names.append(obj.name)
-            continue
-        volume += measured
-        measured_count += 1
-    return VolumeSummary(
-        volume=volume,
-        measured_count=measured_count,
-        non_watertight_names=tuple(non_watertight_names),
-    )
+    """Sum world-space mesh volumes using
+    :meth:`VolumeSummary.from_objects`."""
+    return VolumeSummary.from_objects(objects, depsgraph)

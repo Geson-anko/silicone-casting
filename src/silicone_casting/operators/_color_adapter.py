@@ -11,7 +11,6 @@ from ..core import (
     RGB,
     CalibratedColorant,
     SimulatedSiliconeAppearance,
-    simulate_silicone_appearance,
 )
 
 
@@ -109,7 +108,7 @@ def calculate_profile_appearance(
         )
         for colorant in profile.colorants
     )
-    return simulate_silicone_appearance(
+    return SimulatedSiliconeAppearance.from_mixture(
         cast(RGB, tuple(profile.base_color[:3])),
         profile.base_volume_ml,
         profile.transparency,

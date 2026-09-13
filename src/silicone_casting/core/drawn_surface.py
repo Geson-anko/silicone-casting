@@ -8,8 +8,9 @@ a manually made cutter.
 """
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from math import fsum, isfinite, radians
-from typing import cast
+from typing import Self, cast
 
 # The bpy wheel initializes bmesh; keep this import order.
 # isort: off
@@ -195,6 +196,291 @@ def _bridge_annulus(
     return coords, triangles, polygons
 
 
+@dataclass(frozen=True)
+class _ProjectedBoundary:
+    """Validated planar loops and the frame that restores world positions."""
+
+    points: list[Vector]
+    origin: Vector
+    scale: float
+    normal: Vector
+    u: Vector
+    v: Vector
+    projected: list[list[Vector]]
+    edges: list[tuple[int, int]]
+    depths: list[int]
+
+    @classmethod
+    def from_loops(cls, loops: Sequence[Sequence[Vector]]) -> Self:
+        """Normalize the loops and reject crossing or nested projections."""
+        cleaned = [list(loop) for loop in loops]
+        for loop in cleaned:
+            if len(loop) > 1 and loop[0] == loop[-1]:
+                loop.pop()
+            if len(loop) < 3 or any(
+                len(p) != 3 or not all(isfinite(v) for v in p) for p in loop
+            ):
+                raise ValueError("Each loop needs at least three finite 3D points")
+        points = [p for loop in cleaned for p in loop]
+        origin = Vector(
+            tuple(fsum(p[axis] for p in points) / len(points) for axis in range(3))
+        )
+        scale = max((p - origin).length for p in points)
+        if scale == 0:
+            raise ValueError("The loop has no area")
+        normalized = [[(p - origin) / scale for p in loop] for loop in cleaned]
+        normal = max(
+            (_area_vector(loop) for loop in normalized), key=lambda n: n.length
+        )
+        if normal.length < _EPSILON:
+            raise ValueError("The loops have no usable projection; redraw the boundary")
+        normal.normalize()
+        u = normal.orthogonal().normalized()
+        v = cast(Vector, normal.cross(u))
+        projected = [
+            [Vector((p.dot(u), p.dot(v))) for p in loop] for loop in normalized
+        ]
+        vertices = [p for loop in projected for p in loop]
+        edges: list[tuple[int, int]] = []
+        offset = 0
+        for loop in projected:
+            edges.extend(
+                (offset + i, offset + (i + 1) % len(loop)) for i in range(len(loop))
+            )
+            offset += len(loop)
+
+        # CDT reports crossings as new vertices and touching/degenerate points as
+        # merged origins. Validate before classifying holes or adding interior points.
+        _, _, _, originals, edge_origins, _ = delaunay_2d_cdt(
+            vertices, edges, [], 0, _EPSILON
+        )
+        if (
+            len(originals) != len(vertices)
+            or any(len(ids) != 1 for ids in originals)
+            or any(len(ids) > 1 for ids in edge_origins)
+        ):
+            raise ValueError("Loops cross, touch or fold in projection; redraw them")
+        depths = [
+            sum(_inside(loop[0], other) for j, other in enumerate(projected) if i != j)
+            for i, loop in enumerate(projected)
+        ]
+        if depths.count(0) != 1 or any(depth > 1 for depth in depths):
+            raise ValueError("Draw one outer boundary and its holes for each cut")
+
+        return cls(points, origin, scale, normal, u, v, projected, edges, depths)
+
+    def contains(self, point: Vector) -> bool:
+        """Test containment inside the outer rim, excluding its holes."""
+        return sum(_inside(point, loop) for loop in self.projected) % 2 == 1
+
+    def sample_interior(self) -> list[Vector]:
+        """Sample the patch on a regular grid, keeping clear of its
+        boundary."""
+        vertices = [point for loop in self.projected for point in loop]
+        samples: list[Vector] = []
+        # Uniform interior samples make the automatically filled patch editable,
+        # including the interior of a triangular or strongly concave boundary.
+        low = Vector((min(p.x for p in vertices), min(p.y for p in vertices)))
+        high = Vector((max(p.x for p in vertices), max(p.y for p in vertices)))
+        for x in range(1, _GRID_SIZE):
+            for y in range(1, _GRID_SIZE):
+                point = Vector(
+                    (
+                        low.x + (high.x - low.x) * x / _GRID_SIZE,
+                        low.y + (high.y - low.y) * y / _GRID_SIZE,
+                    )
+                )
+                on_edge = False
+                for a, b in self.edges:
+                    closest, factor = intersect_point_line(
+                        point, vertices[a], vertices[b]
+                    )
+                    if (
+                        -_EPSILON <= factor <= 1 + _EPSILON
+                        and (point - closest).length < _EPSILON * 10
+                    ):
+                        on_edge = True
+                        break
+                if not on_edge and self.contains(point):
+                    samples.append(point)
+        return samples
+
+
+@dataclass
+class _SurfacePatch:
+    """A projected triangulation with fixed boundary heights."""
+
+    _boundary: _ProjectedBoundary
+    _coords: list[Vector]
+    _faces: list[list[int]]
+    _boundary_map: dict[int, int]
+    _fixed: dict[int, float]
+    _bridge_faces: list[tuple[int, ...]] | None
+
+    @classmethod
+    def from_boundary(cls, boundary: _ProjectedBoundary) -> Self:
+        """Sample and triangulate a patch without changing its drawn rim."""
+        vertices = [point for loop in boundary.projected for point in loop]
+        points = boundary.points
+        edges = boundary.edges
+        bridge = _bridge_annulus(boundary.projected, boundary.depths)
+        if bridge is None:
+            vertices.extend(boundary.sample_interior())
+            coords, _, triangles, originals, _, _ = delaunay_2d_cdt(
+                vertices, edges, [], 0, _EPSILON
+            )
+        else:
+            coords, triangles, _ = bridge
+            originals = [[i] if i < len(points) else [] for i in range(len(coords))]
+        # Dense freehand boundaries can produce nearly collinear CDT triangles.
+        # Use the original boundary coordinates and omit zero-area faces before
+        # classifying the rim; otherwise a degenerate triangle reverses its edges.
+        for i, ids in enumerate(originals):
+            for source in ids:
+                if source < len(points):
+                    coords[i] = vertices[source]
+                    break
+
+        def has_area(face: Sequence[int]) -> bool:
+            a, b, c = (coords[i] for i in face)
+            return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) > 1e-9
+
+        faces = [
+            face
+            for face in triangles
+            if has_area(face)
+            and boundary.contains(
+                sum((coords[i] for i in face), Vector((0.0, 0.0))) / len(face)
+            )
+        ]
+        if not faces:
+            raise ValueError("The loops do not enclose a cutting surface")
+        boundary_map = {
+            source: i
+            for i, ids in enumerate(originals)
+            for source in ids
+            if source < len(points)
+        }
+        if len(boundary_map) != len(points):
+            raise ValueError("The boundary could not be preserved")
+        fixed = {
+            i: ((points[source] - boundary.origin) / boundary.scale).dot(
+                boundary.normal
+            )
+            for source, i in boundary_map.items()
+        }
+        return cls(
+            boundary,
+            coords,
+            faces,
+            boundary_map,
+            fixed,
+            None if bridge is None else bridge[2],
+        )
+
+    def _refine_boundary_chords(self) -> None:
+        """Free boundary-to-boundary chords for the interior height solve."""
+        coords = self._coords
+        faces = self._faces
+        fixed = self._fixed
+        boundary_map = self._boundary_map
+        edges = self._boundary.edges
+        # A chord between two fixed boundary vertices otherwise isolates an ear
+        # from the interior solve. Split these chords with free vertices so the
+        # interpolated surface leaves the target skin instead of making slivers.
+        edge_counts: dict[tuple[int, int], int] = {}
+        for face in faces:
+            for a, b in zip(face, (*face[1:], face[0]), strict=True):
+                key = (min(a, b), max(a, b))
+                edge_counts[key] = edge_counts.get(key, 0) + 1
+        expected_rim = {
+            (
+                min(boundary_map[a], boundary_map[b]),
+                max(boundary_map[a], boundary_map[b]),
+            )
+            for a, b in edges
+        }
+        if {edge for edge, count in edge_counts.items() if count == 1} != expected_rim:
+            raise ValueError(
+                "The boundary could not be triangulated; simplify or redraw the stroke"
+            )
+        split_edges: dict[tuple[int, int], int] = {}
+        for (a, b), count in edge_counts.items():
+            if count == 2 and a in fixed and b in fixed:
+                split_edges[a, b] = len(coords)
+                coords.append((coords[a] + coords[b]) / 2)
+        refined_faces: list[list[int]] = []
+        # Split only at the chord midpoints. A separate triangle center adds
+        # unnecessary faces, especially across narrow annular patches.
+        for face in faces:
+            triangles_to_split = [face]
+            for a, b in zip(face, (*face[1:], face[0]), strict=True):
+                midpoint = split_edges.get((min(a, b), max(a, b)))
+                if midpoint is None:
+                    continue
+                for triangle in triangles_to_split:
+                    if a in triangle and b in triangle:
+                        opposite = next(i for i in triangle if i not in (a, b))
+                        triangles_to_split.remove(triangle)
+                        triangles_to_split.extend(
+                            ([a, midpoint, opposite], [midpoint, b, opposite])
+                        )
+                        break
+            refined_faces.extend(triangles_to_split)
+        self._faces = refined_faces
+
+    def to_mesh(
+        self, margin: float
+    ) -> tuple[bpy.types.Mesh, tuple[int, ...], tuple[int, ...]]:
+        """Solve heights, restore the boundary and allocate the editable
+        mesh."""
+        self._refine_boundary_chords()
+        coords, faces, fixed = self._coords, self._faces, self._fixed
+        boundary_map = self._boundary_map
+        points = self._boundary.points
+        origin, scale = self._boundary.origin, self._boundary.scale
+        u, v, normal = self._boundary.u, self._boundary.v, self._boundary.normal
+        heights = _interpolate_heights(coords, faces, fixed)
+        used = sorted({i for face in faces for i in face})
+        if not set(boundary_map.values()).issubset(used):
+            raise ValueError("The boundary is too finely sampled; simplify the stroke")
+        remap = {old: new for new, old in enumerate(used)}
+        positions = [
+            origin + scale * (u * coords[i].x + v * coords[i].y + normal * heights[i])
+            for i in used
+        ]
+        boundary = tuple(remap[boundary_map[i]] for i in range(len(points)))
+        for source, index in enumerate(boundary):
+            positions[index] = points[source].copy()
+        polygons = [tuple(remap[i] for i in face) for face in faces]
+        interior = tuple(remap[i] for i in used if i not in fixed)
+        if not interior:
+            # Very narrow patches may miss the regular grid. Add triangle centers
+            # so manual interior shaping is still possible without subdivision.
+            refined: list[tuple[int, ...]] = []
+            start = len(positions)
+            for a, b, c in polygons:
+                index = len(positions)
+                positions.append((positions[a] + positions[b] + positions[c]) / 3)
+                refined.extend(((a, b, index), (b, c, index), (c, a, index)))
+            polygons = refined
+            interior = tuple(range(start, len(positions)))
+        if self._bridge_faces is None:
+            polygons = _join_interior_triangles(positions, polygons)
+        else:
+            polygons = [tuple(remap[i] for i in face) for face in self._bridge_faces]
+        if margin:
+            _extend_boundary(positions, polygons, boundary, margin, normal)
+        mesh = bpy.data.meshes.new("Drawn Cutting Surface")
+        try:
+            mesh.from_pydata(positions, [], polygons)
+            mesh.update()
+        except Exception:
+            bpy.data.meshes.remove(mesh)
+            raise
+        return mesh, boundary, interior
+
+
 def interpolate_cutting_surface(
     loops: Sequence[Sequence[Vector]],
     *,
@@ -214,202 +500,8 @@ def interpolate_cutting_surface(
     """
     if not loops or not isfinite(margin) or margin < 0:
         raise ValueError("Draw at least one closed loop and use a nonnegative margin")
-    cleaned = [list(loop) for loop in loops]
-    for loop in cleaned:
-        if len(loop) > 1 and loop[0] == loop[-1]:
-            loop.pop()
-        if len(loop) < 3 or any(
-            len(p) != 3 or not all(isfinite(v) for v in p) for p in loop
-        ):
-            raise ValueError("Each loop needs at least three finite 3D points")
-    points = [p for loop in cleaned for p in loop]
-    origin = Vector(
-        tuple(fsum(p[axis] for p in points) / len(points) for axis in range(3))
-    )
-    scale = max((p - origin).length for p in points)
-    if scale == 0:
-        raise ValueError("The loop has no area")
-    normalized = [[(p - origin) / scale for p in loop] for loop in cleaned]
-    normal = max((_area_vector(loop) for loop in normalized), key=lambda n: n.length)
-    if normal.length < _EPSILON:
-        raise ValueError("The loops have no usable projection; redraw the boundary")
-    normal.normalize()
-    u = normal.orthogonal().normalized()
-    v = cast(Vector, normal.cross(u))
-    projected = [[Vector((p.dot(u), p.dot(v))) for p in loop] for loop in normalized]
-    vertices = [p for loop in projected for p in loop]
-    edges: list[tuple[int, int]] = []
-    offset = 0
-    for loop in projected:
-        edges.extend(
-            (offset + i, offset + (i + 1) % len(loop)) for i in range(len(loop))
-        )
-        offset += len(loop)
-
-    # CDT reports crossings as new vertices and touching/degenerate points as
-    # merged origins. Validate before classifying holes or adding interior points.
-    _, _, _, originals, edge_origins, _ = delaunay_2d_cdt(
-        vertices, edges, [], 0, _EPSILON
-    )
-    if (
-        len(originals) != len(vertices)
-        or any(len(ids) != 1 for ids in originals)
-        or any(len(ids) > 1 for ids in edge_origins)
-    ):
-        raise ValueError("Loops cross, touch or fold in projection; redraw them")
-    depths = [
-        sum(_inside(loop[0], other) for j, other in enumerate(projected) if i != j)
-        for i, loop in enumerate(projected)
-    ]
-    if depths.count(0) != 1 or any(depth > 1 for depth in depths):
-        raise ValueError("Draw one outer boundary and its holes for each cut")
-
-    def in_patch(point: Vector) -> bool:
-        return sum(_inside(point, loop) for loop in projected) % 2 == 1
-
-    bridge = _bridge_annulus(projected, depths)
-    # Uniform interior samples make the automatically filled patch editable,
-    # including the interior of a triangular or strongly concave boundary.
-    low = Vector((min(p.x for p in vertices), min(p.y for p in vertices)))
-    high = Vector((max(p.x for p in vertices), max(p.y for p in vertices)))
-    for x in range(1, _GRID_SIZE if bridge is None else 1):
-        for y in range(1, _GRID_SIZE):
-            point = Vector(
-                (
-                    low.x + (high.x - low.x) * x / _GRID_SIZE,
-                    low.y + (high.y - low.y) * y / _GRID_SIZE,
-                )
-            )
-            on_edge = False
-            for a, b in edges:
-                closest, factor = intersect_point_line(point, vertices[a], vertices[b])
-                if (
-                    -_EPSILON <= factor <= 1 + _EPSILON
-                    and (point - closest).length < _EPSILON * 10
-                ):
-                    on_edge = True
-                    break
-            if not on_edge and in_patch(point):
-                vertices.append(point)
-    if bridge is None:
-        coords, _, triangles, originals, _, _ = delaunay_2d_cdt(
-            vertices, edges, [], 0, _EPSILON
-        )
-    else:
-        coords, triangles, _ = bridge
-        originals = [[i] if i < len(points) else [] for i in range(len(coords))]
-    # Dense freehand boundaries can produce nearly collinear CDT triangles.
-    # Use the original boundary coordinates and omit zero-area faces before
-    # classifying the rim; otherwise a degenerate triangle reverses its edges.
-    for i, ids in enumerate(originals):
-        for source in ids:
-            if source < len(points):
-                coords[i] = vertices[source]
-                break
-
-    def has_area(face: Sequence[int]) -> bool:
-        a, b, c = (coords[i] for i in face)
-        return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x) > 1e-9
-
-    faces = [
-        face
-        for face in triangles
-        if has_area(face)
-        and in_patch(sum((coords[i] for i in face), Vector((0.0, 0.0))) / len(face))
-    ]
-    if not faces:
-        raise ValueError("The loops do not enclose a cutting surface")
-    boundary_map = {
-        source: i
-        for i, ids in enumerate(originals)
-        for source in ids
-        if source < len(points)
-    }
-    if len(boundary_map) != len(points):
-        raise ValueError("The boundary could not be preserved")
-    fixed = {
-        i: ((points[source] - origin) / scale).dot(normal)
-        for source, i in boundary_map.items()
-    }
-    # A chord between two fixed boundary vertices otherwise isolates an ear
-    # from the interior solve. Split these chords with free vertices so the
-    # interpolated surface leaves the target skin instead of making slivers.
-    edge_counts: dict[tuple[int, int], int] = {}
-    for face in faces:
-        for a, b in zip(face, (*face[1:], face[0]), strict=True):
-            key = (min(a, b), max(a, b))
-            edge_counts[key] = edge_counts.get(key, 0) + 1
-    expected_rim = {
-        (min(boundary_map[a], boundary_map[b]), max(boundary_map[a], boundary_map[b]))
-        for a, b in edges
-    }
-    if {edge for edge, count in edge_counts.items() if count == 1} != expected_rim:
-        raise ValueError(
-            "The boundary could not be triangulated; simplify or redraw the stroke"
-        )
-    split_edges: dict[tuple[int, int], int] = {}
-    for (a, b), count in edge_counts.items():
-        if count == 2 and a in fixed and b in fixed:
-            split_edges[a, b] = len(coords)
-            coords.append((coords[a] + coords[b]) / 2)
-    refined_faces: list[list[int]] = []
-    # Split only at the chord midpoints. A separate triangle center adds
-    # unnecessary faces, especially across narrow annular patches.
-    for face in faces:
-        triangles_to_split = [face]
-        for a, b in zip(face, (*face[1:], face[0]), strict=True):
-            midpoint = split_edges.get((min(a, b), max(a, b)))
-            if midpoint is None:
-                continue
-            for triangle in triangles_to_split:
-                if a in triangle and b in triangle:
-                    opposite = next(i for i in triangle if i not in (a, b))
-                    triangles_to_split.remove(triangle)
-                    triangles_to_split.extend(
-                        ([a, midpoint, opposite], [midpoint, b, opposite])
-                    )
-                    break
-        refined_faces.extend(triangles_to_split)
-    faces = refined_faces
-    heights = _interpolate_heights(coords, faces, fixed)
-    used = sorted({i for face in faces for i in face})
-    if not set(boundary_map.values()).issubset(used):
-        raise ValueError("The boundary is too finely sampled; simplify the stroke")
-    remap = {old: new for new, old in enumerate(used)}
-    positions = [
-        origin + scale * (u * coords[i].x + v * coords[i].y + normal * heights[i])
-        for i in used
-    ]
-    boundary = tuple(remap[boundary_map[i]] for i in range(len(points)))
-    for source, index in enumerate(boundary):
-        positions[index] = points[source].copy()
-    polygons = [tuple(remap[i] for i in face) for face in faces]
-    interior = tuple(remap[i] for i in used if i not in fixed)
-    if not interior:
-        # Very narrow patches may miss the regular grid. Add triangle centers
-        # so manual interior shaping is still possible without subdivision.
-        refined: list[tuple[int, ...]] = []
-        start = len(positions)
-        for a, b, c in polygons:
-            index = len(positions)
-            positions.append((positions[a] + positions[b] + positions[c]) / 3)
-            refined.extend(((a, b, index), (b, c, index), (c, a, index)))
-        polygons = refined
-        interior = tuple(range(start, len(positions)))
-    if bridge is None:
-        polygons = _join_interior_triangles(positions, polygons)
-    else:
-        polygons = [tuple(remap[i] for i in face) for face in bridge[2]]
-    if margin:
-        _extend_boundary(positions, polygons, boundary, margin, normal)
-    mesh = bpy.data.meshes.new("Drawn Cutting Surface")
-    try:
-        mesh.from_pydata(positions, [], polygons)
-        mesh.update()
-    except Exception:
-        bpy.data.meshes.remove(mesh)
-        raise
-    return mesh, boundary, interior
+    boundary = _ProjectedBoundary.from_loops(loops)
+    return _SurfacePatch.from_boundary(boundary).to_mesh(margin)
 
 
 def _join_interior_triangles(

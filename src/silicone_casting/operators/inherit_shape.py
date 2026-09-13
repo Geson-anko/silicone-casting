@@ -42,8 +42,11 @@ class SILCAST_OT_inherit_shape(bpy.types.Operator):
             _active_mesh(context) is not None or props.inherit_collection is not None
         )
 
-    @override
-    def execute(self, context: bpy.types.Context) -> OperatorReturn:
+    def _source(
+        self, context: bpy.types.Context
+    ) -> bpy.types.Object | bpy.types.Collection | None:
+        """Resolve the chosen operand and report invalid collection
+        contents."""
         props = context.scene.silicone_casting
         use_collection = cast(
             bool,
@@ -57,17 +60,23 @@ class SILCAST_OT_inherit_shape(bpy.types.Operator):
                 obj.type == "MESH" for obj in source.all_objects
             ):
                 self.report({"ERROR"}, "Choose a collection containing meshes")
-                return {"CANCELLED"}
+                return None
             if any(obj.type != "MESH" for obj in source.all_objects):
                 self.report({"ERROR"}, "The collection must contain only mesh objects")
-                return {"CANCELLED"}
+                return None
             if source == context.scene.collection:
                 self.report({"ERROR"}, "Choose a collection below the scene root")
-                return {"CANCELLED"}
+                return None
         if source is None:
             self.report({"ERROR"}, "Select an active mesh in Object Mode")
-            return {"CANCELLED"}
+        return source
 
+    def _create_inherited_object(
+        self,
+        context: bpy.types.Context,
+        source: bpy.types.Object | bpy.types.Collection,
+    ) -> bpy.types.Object:
+        """Link an empty mesh outside its operand and configure its union."""
         name = f"{source.name}{_OBJECT_SUFFIX}"
         mesh = bpy.data.meshes.new(name)
         inherited = bpy.data.objects.new(name, mesh)
@@ -88,7 +97,14 @@ class SILCAST_OT_inherit_shape(bpy.types.Operator):
         else:
             modifier.operand_type = "OBJECT"
             modifier.object = source
+        return inherited
 
+    @override
+    def execute(self, context: bpy.types.Context) -> OperatorReturn:
+        source = self._source(context)
+        if source is None:
+            return {"CANCELLED"}
+        inherited = self._create_inherited_object(context, source)
         for selected in context.selected_objects or ():
             selected.select_set(False)
         inherited.select_set(True)

@@ -7,8 +7,8 @@ from bpy.props import EnumProperty, IntProperty
 
 from ._operator import OperatorReturn
 
-_MoveDirection = Literal["UP", "DOWN"]
-_SelectionMode = Literal["REPLACE", "TOGGLE", "RANGE", "ADD_RANGE"]
+type _MoveDirection = Literal["UP", "DOWN"]
+type _SelectionMode = Literal["REPLACE", "TOGGLE", "RANGE", "ADD_RANGE"]
 
 _SELECTION_MODES = (
     ("REPLACE", "Replace", "Select only this row"),

@@ -8,8 +8,8 @@ from bpy.props import EnumProperty
 from ..core import MIN_SURFACE_CUT_THICKNESS_MM, create_surface_cut, mm_to_units
 from ._operator import OperatorReturn
 
-_BooleanOperation = Literal["DIFFERENCE", "UNION", "INTERSECT"]
-_BooleanSolver = Literal["MANIFOLD", "EXACT", "FLOAT"]
+type _BooleanOperation = Literal["DIFFERENCE", "UNION", "INTERSECT"]
+type _BooleanSolver = Literal["MANIFOLD", "EXACT", "FLOAT"]
 
 _OPERATIONS = (
     ("DIFFERENCE", "Difference", "Subtract the operand from the active mesh"),
