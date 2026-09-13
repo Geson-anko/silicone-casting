@@ -1,7 +1,7 @@
 """Operator that exports the selected meshes with fixed STL settings."""
 
 import os
-from typing import Final, cast, override
+from typing import TYPE_CHECKING, Final, cast, override
 
 import bpy
 from bpy.props import BoolProperty, StringProperty
@@ -37,19 +37,24 @@ class SILCAST_OT_export_stl(bpy.types.Operator):
         "Export only the selected meshes with modifiers applied, in millimetres"
     )
 
-    filepath: StringProperty(  # pyright: ignore[reportInvalidTypeForm]
-        name="File Path",
-        subtype="FILE_PATH",
-        options={"SKIP_SAVE"},
-    )
-    filter_glob: StringProperty(  # pyright: ignore[reportInvalidTypeForm]
-        default="*.stl",
-        options={"HIDDEN"},
-    )
-    check_existing: BoolProperty(  # pyright: ignore[reportInvalidTypeForm]
-        default=True,
-        options={"HIDDEN"},
-    )
+    if TYPE_CHECKING:
+        filepath: str
+        filter_glob: str
+        check_existing: bool
+    else:
+        filepath: StringProperty(
+            name="File Path",
+            subtype="FILE_PATH",
+            options={"SKIP_SAVE"},
+        )
+        filter_glob: StringProperty(
+            default="*.stl",
+            options={"HIDDEN"},
+        )
+        check_existing: BoolProperty(
+            default=True,
+            options={"HIDDEN"},
+        )
 
     @classmethod
     @override
@@ -60,16 +65,14 @@ class SILCAST_OT_export_stl(bpy.types.Operator):
     def invoke(
         self, context: bpy.types.Context, event: bpy.types.Event
     ) -> OperatorReturn:
-        self.filepath = _default_filepath(  # pyright: ignore[reportUnknownMemberType]
-            context
-        )
+        self.filepath = _default_filepath(context)
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
 
     @override
     def check(self, context: bpy.types.Context) -> bool:
         # The file browser must check the path that execute will actually write.
-        filepath = cast(str, self.filepath)  # pyright: ignore[reportUnknownMemberType]
+        filepath = self.filepath
         normalized = bpy.path.ensure_ext(filepath, _STL_EXTENSION)
         if os.path.basename(filepath) and normalized != filepath:
             self.filepath = normalized
@@ -84,10 +87,7 @@ class SILCAST_OT_export_stl(bpy.types.Operator):
             self.report({"ERROR"}, "Select at least one mesh in Object Mode")
             return {"CANCELLED"}
 
-        filepath = cast(
-            str,
-            self.filepath,  # pyright: ignore[reportUnknownMemberType]
-        )
+        filepath = self.filepath
         if not filepath:
             self.report({"ERROR"}, "Choose an STL file path")
             return {"CANCELLED"}

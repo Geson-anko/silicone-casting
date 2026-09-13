@@ -2,9 +2,14 @@
 
 from dataclasses import dataclass
 from math import cos, isfinite, pi, sin
+from typing import Self
 
 import bpy
 from mathutils import Matrix, Vector
+
+from .units import mm_to_units
+
+type KeyGeometry = tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]
 
 
 @dataclass(frozen=True)
@@ -19,6 +24,30 @@ class KeyDimensions:
     clearance: float
     depth_clearance: float
     taper: float = 0.2
+
+    @classmethod
+    def from_mm(
+        cls,
+        shape: str,
+        width: float,
+        length: float,
+        height: float,
+        embed: float,
+        clearance: float,
+        depth_clearance: float,
+        *,
+        scale_length: float,
+        taper: float = 0.2,
+    ) -> Self:
+        """Convert millimetre dimensions using the scene's unit scale."""
+        return cls(
+            shape,
+            *(
+                mm_to_units(value, scale_length)
+                for value in (width, length, height, embed, clearance, depth_clearance)
+            ),
+            taper=taper,
+        )
 
     def validate(self) -> None:
         """Reject degenerate solids before allocating Blender data."""
@@ -37,57 +66,56 @@ class KeyDimensions:
         ):
             raise ValueError("Depth clearance exceeds the tapered tip")
 
+    def geometry(self, *, socket: bool = False) -> KeyGeometry:
+        """Build closed rings with constant root width and lateral clearance.
 
-def key_geometry(
-    dimensions: KeyDimensions, *, socket: bool = False
-) -> tuple[list[tuple[float, float, float]], list[tuple[int, ...]]]:
-    """Build a closed key; the socket adds lateral and tip clearance.
+        Taper starts at the contact plane (Z=0) and continues beyond the
+        socket tip, preserving clearance at matching heights.
+        """
+        self.validate()
+        gap = self.clearance if socket else 0.0
+        top = self.height + (self.depth_clearance if socket else 0.0)
+        count = 4 if self.shape == "RECTANGLE" else 64
+        vertices = [
+            vertex
+            for z in (-self.embed, 0.0, top)
+            for vertex in self._ring(z, gap, count)
+        ]
+        faces: list[tuple[int, ...]] = [tuple(reversed(range(count)))]
+        for ring in range(2):
+            for i in range(count):
+                a = ring * count + i
+                b = ring * count + (i + 1) % count
+                faces.append((a, b, b + count, a + count))
+        faces.append(tuple(range(2 * count, 3 * count)))
+        return vertices, faces
 
-    Taper starts at the contact plane (Z=0). Below that plane the root
-    keeps its full width, ensuring a positive overlap with the male
-    half. Socket taper continues beyond the tip so lateral clearance
-    stays constant at matching heights.
-    """
-    d = dimensions
-    d.validate()
-    gap = d.clearance if socket else 0.0
-    top = d.height + (d.depth_clearance if socket else 0.0)
-    vertices: list[tuple[float, float, float]] = []
-    count = 4 if d.shape == "RECTANGLE" else 64
-    for z in (-d.embed, 0.0, top):
+    def _ring(
+        self, z: float, gap: float, count: int
+    ) -> list[tuple[float, float, float]]:
         factor = 1.0
-        if d.shape == "TAPERED" and z > 0:
-            factor -= d.taper * z / d.height
-        x = d.width * factor / 2 + gap
-        y = d.length / 2 + gap
-        if d.shape == "RECTANGLE":
-            vertices.extend(
-                (a * x, b * y, z) for a, b in ((1, 1), (-1, 1), (-1, -1), (1, -1))
-            )
-        else:
-            vertices.extend(
-                (x * cos(2 * pi * i / count), x * sin(2 * pi * i / count), z)
-                for i in range(count)
-            )
-    faces: list[tuple[int, ...]] = [tuple(reversed(range(count)))]
-    for ring in range(2):
-        for i in range(count):
-            a = ring * count + i
-            b = ring * count + (i + 1) % count
-            faces.append((a, b, b + count, a + count))
-    faces.append(tuple(range(2 * count, 3 * count)))
-    return vertices, faces
+        if self.shape == "TAPERED" and z > 0:
+            factor -= self.taper * z / self.height
+        x = self.width * factor / 2 + gap
+        y = self.length / 2 + gap
+        if self.shape == "RECTANGLE":
+            return [(a * x, b * y, z) for a, b in ((1, 1), (-1, 1), (-1, -1), (1, -1))]
+        return [
+            (x * cos(2 * pi * i / count), x * sin(2 * pi * i / count), z)
+            for i in range(count)
+        ]
 
-
-def create_key_mesh(
-    name: str, dimensions: KeyDimensions, *, socket: bool = False
-) -> bpy.types.Mesh:
-    """Allocate the closed geometry as a Blender mesh."""
-    vertices, faces = key_geometry(dimensions, socket=socket)
-    mesh = bpy.data.meshes.new(name)
-    mesh.from_pydata(vertices, [], faces)
-    mesh.update()
-    return mesh
+    def create_mesh(self, name: str, *, socket: bool = False) -> bpy.types.Mesh:
+        """Allocate the closed geometry as a Blender mesh."""
+        vertices, faces = self.geometry(socket=socket)
+        mesh = bpy.data.meshes.new(name)
+        try:
+            mesh.from_pydata(vertices, [], faces)
+            mesh.update()
+        except (ValueError, RuntimeError):
+            bpy.data.meshes.remove(mesh)
+            raise
+        return mesh
 
 
 def placement_matrix(position: Vector, normal: Vector, angle: float = 0) -> Matrix:

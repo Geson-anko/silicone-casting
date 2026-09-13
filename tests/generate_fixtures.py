@@ -12,7 +12,7 @@ def main() -> None:
     """Write every golden fixture, reporting each path as it is written."""
     FIXTURES_DIR.mkdir(exist_ok=True)
     # No golden fixtures yet. Add generation steps here as geometry that this
-    # add-on computes itself lands; `write_obj(path, mesh_data(mesh))` from
+    # add-on computes itself lands; `MeshData.from_mesh(mesh).write_obj(path)` from
     # `_helpers` is the writer.
     print("no golden fixtures to write")
 

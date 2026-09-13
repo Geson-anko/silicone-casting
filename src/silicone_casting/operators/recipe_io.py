@@ -3,21 +3,24 @@
 import json
 import math
 import os
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Protocol, cast, override
+from typing import TYPE_CHECKING, Literal, cast, override
 
 import bpy
 from bpy.props import BoolProperty, EnumProperty, StringProperty
 
-from ._color_adapter import ColorProfileValues
-from ._color_material import ensure_color_preview_material
+from ..properties.color import SiliconeCastingColorProfile
+from ..properties.settings import scene_settings
 from ._operator import OperatorReturn
 
 # Only recipe inputs belong in exchange files; material pointers and derived
 # display values are deliberately excluded. Numeric limits match the RNA inputs.
+type RecipeKind = Literal["MIXTURE", "COLORS"]
 type _Rule = (
     type[bool] | type[str] | tuple[float, float] | dict[str, _Rule] | list[_Rule]
 )
+_FORMAT_VERSION = 2
 _POSITIVE = (0.001, 3.4028234663852886e38)
 _NONNEGATIVE = (0.0, 3.4028234663852886e38)
 _COLORANT: dict[str, _Rule] = {
@@ -36,12 +39,12 @@ _PROFILE: dict[str, _Rule] = {
     "colorants": [_COLORANT],
 }
 _MIXTURE: dict[str, _Rule] = {
-    "mixture_use_shared_density": bool,
-    "mixture_density_a_g_per_ml": _POSITIVE,
-    "mixture_density_b_g_per_ml": _POSITIVE,
-    "mixture_ratio_a": _POSITIVE,
-    "mixture_ratio_b": _POSITIVE,
-    "mixture_parts": [
+    "use_shared_density": bool,
+    "density_a_g_per_ml": _POSITIVE,
+    "density_b_g_per_ml": _POSITIVE,
+    "ratio_a": _POSITIVE,
+    "ratio_b": _POSITIVE,
+    "parts": [
         {
             "enabled": bool,
             "selected": bool,
@@ -50,7 +53,7 @@ _MIXTURE: dict[str, _Rule] = {
         }
     ],
 }
-_SCHEMAS: dict[str, dict[str, _Rule]] = {
+_SCHEMAS: dict[RecipeKind, dict[str, _Rule]] = {
     "MIXTURE": _MIXTURE,
     "COLORS": {"color_profiles": [_PROFILE]},
 }
@@ -58,11 +61,6 @@ _KINDS = (
     ("MIXTURE", "Mixture", "Replace the mixture settings and all part rows on import"),
     ("COLORS", "Colors", "Append all imported color profiles to the existing profiles"),
 )
-
-
-class _Collection(Protocol):
-    def clear(self) -> None: ...
-    def add(self) -> bpy.types.PropertyGroup: ...
 
 
 def _validate(value: object, rule: _Rule, location: str) -> None:
@@ -101,24 +99,40 @@ def _validate(value: object, rule: _Rule, location: str) -> None:
             raise ValueError(f"{location}: invalid Unicode text") from error
 
 
-def _snapshot(source: object, schema: dict[str, _Rule]) -> dict[str, object]:
+def _snapshot(
+    source: bpy.types.PropertyGroup, schema: dict[str, _Rule]
+) -> dict[str, object]:
+    """Read the schema's named RNA fields at the JSON serialization
+    boundary."""
     data: dict[str, object] = {}
     for key, rule in schema.items():
-        value = getattr(source, key)
+        value: object = getattr(source, key)
         if isinstance(rule, list):
             if isinstance(rule[0], dict):
-                value = [_snapshot(item, rule[0]) for item in value]
+                collection = cast(
+                    "bpy.types.bpy_prop_collection_idprop[bpy.types.PropertyGroup]",
+                    value,
+                )
+                value = [_snapshot(item, rule[0]) for item in collection]
             else:
-                value = list(value)
+                value = list(cast(Sequence[float], value))
         data[key] = value
     return data
 
 
-def _restore(target: object, data: dict[str, object], schema: dict[str, _Rule]) -> None:
+def _restore(
+    target: bpy.types.PropertyGroup,
+    data: dict[str, object],
+    schema: dict[str, _Rule],
+) -> None:
+    """Assign only fields that passed the complete document validation."""
     for key, rule in schema.items():
         value = data[key]
         if isinstance(rule, list) and isinstance(rule[0], dict):
-            collection = cast(_Collection, getattr(target, key))
+            collection = cast(
+                "bpy.types.bpy_prop_collection_idprop[bpy.types.PropertyGroup]",
+                getattr(target, key),
+            )
             # Color imports append; mixture rows replace the table.
             if key != "color_profiles":
                 collection.clear()
@@ -126,7 +140,7 @@ def _restore(target: object, data: dict[str, object], schema: dict[str, _Rule]) 
                 entry = collection.add()
                 _restore(entry, item, rule[0])
                 if key == "color_profiles":
-                    ensure_color_preview_material(cast(ColorProfileValues, entry))
+                    cast(SiliconeCastingColorProfile, entry).ensure_preview_material()
         else:
             setattr(target, key, value)
 
@@ -134,20 +148,25 @@ def _restore(target: object, data: dict[str, object], schema: dict[str, _Rule]) 
 class _RecipeFileOperator:
     """Shared file selector properties for the two exchange operations."""
 
-    filepath: StringProperty(  # pyright: ignore[reportInvalidTypeForm]
-        name="File Path",
-        subtype="FILE_PATH",
-        options={"SKIP_SAVE"},
-    )
-    filter_glob: StringProperty(  # pyright: ignore[reportInvalidTypeForm]
-        default="*.json",
-        options={"HIDDEN"},
-    )
-    kind: EnumProperty(  # pyright: ignore[reportInvalidTypeForm]
-        name="Recipe Type",
-        items=_KINDS,
-        default="MIXTURE",
-    )
+    if TYPE_CHECKING:
+        filepath: str
+        filter_glob: str
+        kind: RecipeKind
+    else:
+        filepath: StringProperty(
+            name="File Path",
+            subtype="FILE_PATH",
+            options={"SKIP_SAVE"},
+        )
+        filter_glob: StringProperty(
+            default="*.json",
+            options={"HIDDEN"},
+        )
+        kind: EnumProperty(
+            name="Recipe Type",
+            items=_KINDS,
+            default="MIXTURE",
+        )
 
     def invoke(
         self, context: bpy.types.Context, event: bpy.types.Event
@@ -161,15 +180,18 @@ class SILCAST_OT_export_recipes(_RecipeFileOperator, bpy.types.Operator):
 
     bl_idname = "silicone_casting.export_recipes"
     bl_label = "Export Recipes"
-    check_existing: BoolProperty(  # pyright: ignore[reportInvalidTypeForm]
-        default=True,
-        options={"HIDDEN"},
-    )
+    if TYPE_CHECKING:
+        check_existing: bool
+    else:
+        check_existing: BoolProperty(
+            default=True,
+            options={"HIDDEN"},
+        )
 
     @override
     def check(self, context: bpy.types.Context) -> bool:
         # Normalize before Blender asks whether to overwrite an existing file.
-        filepath = cast(str, self.filepath)  # pyright: ignore[reportUnknownMemberType]
+        filepath = self.filepath
         normalized = bpy.path.ensure_ext(filepath, ".json")
         if os.path.basename(filepath) and normalized != filepath:
             self.filepath = normalized
@@ -178,16 +200,18 @@ class SILCAST_OT_export_recipes(_RecipeFileOperator, bpy.types.Operator):
 
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
-        kind = cast(str, self.kind)  # pyright: ignore[reportUnknownMemberType]
-        filepath = cast(str, self.filepath)  # pyright: ignore[reportUnknownMemberType]
+        kind = self.kind
+        filepath = self.filepath
         try:
             if not filepath:
                 raise ValueError("Choose a JSON file path")
-            data = _snapshot(context.scene.silicone_casting, _SCHEMAS[kind])
+            settings = scene_settings(context)
+            source = settings.mixture if kind == "MIXTURE" else settings
+            data = _snapshot(source, _SCHEMAS[kind])
             _validate(data, _SCHEMAS[kind], kind)
             document = {
                 "format": "silicone_casting",
-                "version": 1,
+                "version": _FORMAT_VERSION,
                 "kind": kind,
                 "data": data,
             }
@@ -212,8 +236,8 @@ class SILCAST_OT_import_recipes(_RecipeFileOperator, bpy.types.Operator):
 
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
-        kind = cast(str, self.kind)  # pyright: ignore[reportUnknownMemberType]
-        filepath = cast(str, self.filepath)  # pyright: ignore[reportUnknownMemberType]
+        kind = self.kind
+        filepath = self.filepath
         try:
             document: object = json.loads(Path(filepath).read_text(encoding="utf-8"))
             if not isinstance(document, dict):
@@ -222,7 +246,7 @@ class SILCAST_OT_import_recipes(_RecipeFileOperator, bpy.types.Operator):
             if (
                 doc.get("format") != "silicone_casting"
                 or type(doc.get("version")) is not int
-                or doc.get("version") != 1
+                or doc.get("version") != _FORMAT_VERSION
                 or doc.get("kind") != kind
             ):
                 raise ValueError("Unsupported recipe format, version, or type")
@@ -231,11 +255,12 @@ class SILCAST_OT_import_recipes(_RecipeFileOperator, bpy.types.Operator):
         except (OSError, ValueError, RecursionError) as error:
             self.report({"ERROR"}, str(error))
             return {"CANCELLED"}
-        settings = context.scene.silicone_casting
-        _restore(settings, cast(dict[str, object], data), _SCHEMAS[kind])
+        settings = scene_settings(context)
+        target = settings.mixture if kind == "MIXTURE" else settings
+        _restore(target, cast(dict[str, object], data), _SCHEMAS[kind])
         if kind == "MIXTURE":
-            settings.mixture_active_index = -1
-            settings.mixture_selection_anchor = -1
+            settings.mixture.active_index = -1
+            settings.mixture.selection_anchor = -1
         else:
             settings.color_profile_active_index = len(settings.color_profiles) - 1
         self.report({"INFO"}, "Recipes imported")

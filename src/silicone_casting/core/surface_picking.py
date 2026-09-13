@@ -1,10 +1,73 @@
 """Pick visible mesh vertices and edges near a screen-space cursor."""
 
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass, field
+from typing import Self, cast
 
+import bpy
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 from mathutils.geometry import intersect_line_line
+
+
+@dataclass
+class SurfaceSnapshot:
+    """Evaluated world geometry shared by ray drawing and topology snapping."""
+
+    vertices: tuple[Vector, ...]
+    edges: tuple[tuple[int, int], ...]
+    faces: tuple[tuple[int, ...], ...]
+    bvh: BVHTree
+    size: float
+    _snap_bvh: BVHTree | None = field(default=None, init=False, repr=False)
+
+    @classmethod
+    def from_objects(
+        cls, objects: Sequence[bpy.types.Object], depsgraph: bpy.types.Depsgraph
+    ) -> Self:
+        """Capture selected surfaces, releasing each temporary evaluated
+        mesh."""
+        vertices: list[Vector] = []
+        edges: list[tuple[int, int]] = []
+        faces: list[tuple[int, ...]] = []
+        for obj in objects:
+            evaluated = obj.evaluated_get(depsgraph)
+            mesh = evaluated.to_mesh()
+            try:
+                offset = len(vertices)
+                vertices.extend(evaluated.matrix_world @ v.co for v in mesh.vertices)
+                for edge in mesh.edges:
+                    a, b = cast(Sequence[int], edge.vertices)
+                    edges.append((offset + a, offset + b))
+                faces.extend(
+                    tuple(offset + i for i in cast(Sequence[int], face.vertices))
+                    for face in mesh.polygons
+                )
+            finally:
+                evaluated.to_mesh_clear()
+        if not faces:
+            raise ValueError("Choose meshes with faces to draw on")
+        low = Vector(tuple(min(p[i] for p in vertices) for i in range(3)))
+        high = Vector(tuple(max(p[i] for p in vertices) for i in range(3)))
+        return cls(
+            tuple(vertices),
+            tuple(edges),
+            tuple(faces),
+            BVHTree.FromPolygons([(p.x, p.y, p.z) for p in vertices], faces),
+            (high - low).length,
+        )
+
+    @property
+    def snap_bvh(self) -> BVHTree:
+        """Include silhouettes when occluding snap candidates, never drawn
+        rays."""
+        if self._snap_bvh is None:
+            self._snap_bvh = BVHTree.FromPolygons(
+                [(p.x, p.y, p.z) for p in self.vertices],
+                self.faces,
+                epsilon=self.size * 1e-7,
+            )
+        return self._snap_bvh
 
 
 def pick_surface_element(

@@ -21,7 +21,7 @@ import bpy
 import pytest
 
 import silicone_casting
-from silicone_casting.operators import SILCAST_OT_copy_value
+from silicone_casting.operators.copy_value import SILCAST_OT_copy_value
 
 #: A value in the shape the panel produces: two decimals, no unit, no commas.
 DISPLAYED_VALUE = "8.00"

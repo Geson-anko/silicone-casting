@@ -17,7 +17,7 @@ import bpy
 MODIFIER_NAME: Final = "Silicone Casting Solidify"
 
 # Smallest thickness the UI accepts, in millimetres (1 um). Exposed for
-# `ui/properties.py` to use as the FloatProperty minimum. The functions
+# `properties/settings.py` to use as the FloatProperty minimum. The functions
 # below take Blender units and therefore never compare against it.
 MIN_THICKNESS_MM: Final = 1e-3
 

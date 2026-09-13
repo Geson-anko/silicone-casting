@@ -6,7 +6,7 @@ import bpy
 
 #: Blender's ``OperatorReturnItems`` RNA enum, spelled out so operator modules
 #: stay importable at runtime (the stub-only alias is not).
-OperatorReturn = set[
+type OperatorReturn = set[
     Literal["RUNNING_MODAL", "CANCELLED", "FINISHED", "PASS_THROUGH", "INTERFACE"]
 ]
 

@@ -17,6 +17,8 @@
 
 ## feedback
 
+- [型とファクトリの構成](feedback_types_and_factories.md) — `type` 文、クラスが所有する生成・操作、責務ごとの分解を優先する
+
 - [寸法入力の単位型](feedback_distance_inputs.md) — 寸法・隙間は `(mm)` 固定数値ではなく DISTANCE / LENGTH を使う
 
 - [計画・仕様書の言語](feedback_planning_doc_language.md) — 仕様書・AGENTS.md・skill は日本語で書く

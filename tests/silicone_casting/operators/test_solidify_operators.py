@@ -17,8 +17,11 @@ import pytest
 from _helpers import make_cube_mesh
 
 import silicone_casting
-from silicone_casting.core import MODIFIER_NAME, find_solidify
-from silicone_casting.operators import SILCAST_OT_apply_solidify, SILCAST_OT_solidify
+from silicone_casting.core.solidify import MODIFIER_NAME, find_solidify
+from silicone_casting.operators.solidify import (
+    SILCAST_OT_apply_solidify,
+    SILCAST_OT_solidify,
+)
 
 #: Edge length of the test cubes: 2x2x2, spanning -1..1 on every axis.
 CUBE_SIZE = 2.0
@@ -39,7 +42,7 @@ SOLIDIFIED_VERTEX_COUNT = 16
 CUBE_VERTEX_COUNT = 8
 
 #: Signature of the ``add_object`` factory fixture.
-AddObject = Callable[..., bpy.types.Object]
+type AddObject = Callable[..., bpy.types.Object]
 
 
 def _leave_edit_mode() -> None:

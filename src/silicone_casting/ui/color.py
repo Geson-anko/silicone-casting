@@ -6,40 +6,21 @@ from typing import cast, override
 
 import bpy
 
-from ..core import format_hex_color, format_linear_rgb, linear_rgb_to_srgb8
-from ..operators import (
+from ..core.color_mixing import format_hex_color, format_linear_rgb, linear_rgb_to_srgb8
+from ..operators.color_simulator import (
     SILCAST_OT_add_color_profile,
     SILCAST_OT_add_colorant,
     SILCAST_OT_apply_color_material,
     SILCAST_OT_copy_mixture_volume_to_coloring,
-    SILCAST_OT_copy_value,
     SILCAST_OT_remove_color_profile,
     SILCAST_OT_remove_colorant,
 )
-from ..operators.color_simulator import (
-    ColorantValues,
-    ColorProfileValues,
-    ColorSimulatorSettings,
-    active_color_profile,
-    calculate_profile_appearance,
-)
+from ..operators.copy_value import SILCAST_OT_copy_value
+from ..properties.color import SiliconeCastingColorant, SiliconeCastingColorProfile
+from ..properties.settings import SiliconeCastingProperties, scene_settings
+from ._layout import draw_recipe_exchange, table_cells
 
-
-def _colorant_table_cells(
-    layout: bpy.types.UILayout,
-) -> tuple[bpy.types.UILayout, ...]:
-    """Keep dye headings and editable rows in the same responsive columns."""
-    weights = (0.55, 1.2, 2.5, 2.0, 2.0, 2.8, 2.2)
-    remaining = layout.row(align=True)
-    remaining_weight = sum(weights)
-    cells: list[bpy.types.UILayout] = []
-    for weight in weights[:-1]:
-        split = remaining.split(factor=weight / remaining_weight, align=True)
-        cells.append(split.column(align=True))
-        remaining = split.column(align=True)
-        remaining_weight -= weight
-    cells.append(remaining)
-    return tuple(cells)
+_COLORANT_COLUMN_WEIGHTS = (0.55, 1.2, 2.5, 2.0, 2.0, 2.8, 2.2)
 
 
 class SILCAST_UL_color_profiles(bpy.types.UIList):
@@ -86,8 +67,8 @@ class SILCAST_UL_colorants(bpy.types.UIList):
         del context, data, icon, active_data, active_property, index, flt_flag
         if item is None:
             return
-        colorant = cast(ColorantValues, item)
-        cells = _colorant_table_cells(layout)
+        colorant = cast(SiliconeCastingColorant, item)
+        cells = table_cells(layout, _COLORANT_COLUMN_WEIGHTS)
         for cell, property_name in zip(
             cells,
             (
@@ -106,24 +87,18 @@ class SILCAST_UL_colorants(bpy.types.UIList):
 
 def _draw_profile_selector(
     layout: bpy.types.UILayout,
-    scene_settings: bpy.types.PropertyGroup,
+    settings: SiliconeCastingProperties,
 ) -> None:
-    exchange = layout.row(align=True)
-    exchange.operator(
-        "silicone_casting.export_recipes", text="Export JSON", icon="EXPORT"
-    ).kind = "COLORS"
-    exchange.operator(
-        "silicone_casting.import_recipes", text="Import JSON", icon="IMPORT"
-    ).kind = "COLORS"
+    draw_recipe_exchange(layout, "COLORS")
     profiles = layout.box()
     profiles.label(text="1. Choose a Named Profile")
     profile_row = profiles.row()
     profile_row.template_list(
         SILCAST_UL_color_profiles.bl_idname,
         "color_profiles",
-        scene_settings,
+        settings,
         "color_profiles",
-        scene_settings,
+        settings,
         "color_profile_active_index",
         rows=1,
     )
@@ -142,7 +117,7 @@ def _draw_profile_selector(
 
 def _draw_base_settings(
     layout: bpy.types.UILayout,
-    profile: ColorProfileValues,
+    profile: SiliconeCastingColorProfile,
 ) -> None:
     base = layout.box()
     base.label(text="2. Set the Silicone Base Color, Volume, and Transparency")
@@ -164,7 +139,7 @@ def _draw_base_settings(
 
 def _draw_colorants(
     layout: bpy.types.UILayout,
-    profile: ColorProfileValues,
+    profile: SiliconeCastingColorProfile,
 ) -> None:
     colorants = layout.box()
     colorants.label(text="3. Add Colorants and Enter the Actual Drops")
@@ -176,9 +151,19 @@ def _draw_colorants(
         text="Calibration Drops / mL: measured color/opacity point (1.0 estimate)",
         icon="INFO",
     )
-    header = colorants.row()
+    _draw_colorant_list(colorants, profile)
+    selected = profile.active_colorant()
+    if selected is not None:
+        _draw_colorant_editor(colorants, selected)
+
+
+def _draw_colorant_list(
+    layout: bpy.types.UILayout, profile: SiliconeCastingColorProfile
+) -> None:
+    """Draw the calibrated doses with aligned headings and row controls."""
+    header = layout.row()
     for cell, text in zip(
-        _colorant_table_cells(header),
+        table_cells(header, _COLORANT_COLUMN_WEIGHTS),
         (
             "On",
             "Color",
@@ -192,14 +177,13 @@ def _draw_colorants(
     ):
         cell.label(text=text)
     header.column().label(text="", icon="BLANK1")
-    colorant_row = colorants.row()
-    profile_properties = cast(bpy.types.PropertyGroup, profile)
+    colorant_row = layout.row()
     colorant_row.template_list(
         SILCAST_UL_colorants.bl_idname,
         "colorants",
-        profile_properties,
+        profile,
         "colorants",
-        profile_properties,
+        profile,
         "colorant_active_index",
         rows=2,
     )
@@ -215,33 +199,36 @@ def _draw_colorants(
         icon="REMOVE",
     )
 
-    if 0 <= profile.colorant_active_index < len(profile.colorants):
-        selected = profile.colorants[profile.colorant_active_index]
-        editor = colorants.box()
-        editor.label(text=f"Edit Selected Dye Color: {selected.colorant_name}")
-        edit_row = editor.row()
-        picker = edit_row.column(align=True)
-        picker.template_color_picker(
-            selected,
-            "calibration_color",
-            value_slider=True,
-        )
-        values = edit_row.column(align=True)
-        preview = values.row()
-        preview.scale_y = 1.4
-        preview.prop(selected, "calibration_color", text="Color")
-        values.prop(selected, "calibration_hex", text="Hex (sRGB)")
-        values.prop(selected, "calibration_hue_degrees", text="Hue (degrees)")
-        values.prop(
-            selected,
-            "calibration_lightness_percent",
-            text="Lightness (%)",
-        )
+
+def _draw_colorant_editor(
+    layout: bpy.types.UILayout, selected: SiliconeCastingColorant
+) -> None:
+    """Draw the picker and alternate inputs for the selected dye."""
+    editor = layout.box()
+    editor.label(text=f"Edit Selected Dye Color: {selected.colorant_name}")
+    edit_row = editor.row()
+    picker = edit_row.column(align=True)
+    picker.template_color_picker(
+        selected,
+        "calibration_color",
+        value_slider=True,
+    )
+    values = edit_row.column(align=True)
+    preview = values.row()
+    preview.scale_y = 1.4
+    preview.prop(selected, "calibration_color", text="Color")
+    values.prop(selected, "calibration_hex", text="Hex (sRGB)")
+    values.prop(selected, "calibration_hue_degrees", text="Hue (degrees)")
+    values.prop(
+        selected,
+        "calibration_lightness_percent",
+        text="Lightness (%)",
+    )
 
 
 def _draw_color_result(
     layout: bpy.types.UILayout,
-    profile: ColorProfileValues,
+    profile: SiliconeCastingColorProfile,
 ) -> None:
     result = layout.box()
     result.label(text="4. Check the Mixed Color (click values to copy)")
@@ -249,7 +236,7 @@ def _draw_color_result(
     swatch.scale_y = 1.6
     swatch.prop(profile, "result_color", text="Result Color")
 
-    calculated = calculate_profile_appearance(profile)
+    calculated = profile.appearance()
     srgb = linear_rgb_to_srgb8(calculated.color)
     color_values = (
         ("Hex (sRGB)", format_hex_color(calculated.color)),
@@ -276,24 +263,6 @@ def _draw_color_result(
     )
 
 
-def draw_color_simulator(
-    layout: bpy.types.UILayout,
-    scene_settings: bpy.types.PropertyGroup,
-) -> None:
-    """Draw the simulator as a numbered profile-to-result workflow."""
-    settings = cast(ColorSimulatorSettings, scene_settings)
-    _draw_profile_selector(layout, scene_settings)
-
-    profile = active_color_profile(settings)
-    if profile is None:
-        layout.label(text="Press + to add the first profile", icon="INFO")
-        return
-
-    _draw_base_settings(layout, profile)
-    _draw_colorants(layout, profile)
-    _draw_color_result(layout, profile)
-
-
 class SILCAST_PT_color_simulator(bpy.types.Panel):
     """Wide color simulator opened horizontally beside the sidebar."""
 
@@ -307,4 +276,12 @@ class SILCAST_PT_color_simulator(bpy.types.Panel):
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
         assert layout is not None
-        draw_color_simulator(layout, context.scene.silicone_casting)
+        settings = scene_settings(context)
+        _draw_profile_selector(layout, settings)
+        profile = settings.active_color_profile()
+        if profile is None:
+            layout.label(text="Press + to add the first profile", icon="INFO")
+            return
+        _draw_base_settings(layout, profile)
+        _draw_colorants(layout, profile)
+        _draw_color_result(layout, profile)

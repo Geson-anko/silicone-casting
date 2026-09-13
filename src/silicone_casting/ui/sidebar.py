@@ -6,23 +6,25 @@ from typing import Final, cast, override
 
 import bpy
 
-from ..core import format_ml
-from ..operators import (
+from ..core.units import format_ml
+from ..operators.boolean_modifier import (
     SILCAST_OT_add_boolean,
     SILCAST_OT_add_surface_cut,
-    SILCAST_OT_apply_solidify,
-    SILCAST_OT_copy_value,
-    SILCAST_OT_draw_air_vents,
+)
+from ..operators.copy_value import SILCAST_OT_copy_value
+from ..operators.draw_air_vents import SILCAST_OT_draw_air_vents
+from ..operators.draw_surface_cut import (
     SILCAST_OT_draw_surface_cut,
     SILCAST_OT_edit_cutting_surface,
-    SILCAST_OT_export_stl,
-    SILCAST_OT_inherit_shape,
-    SILCAST_OT_measure_volume,
-    SILCAST_OT_separate_loose_parts,
-    SILCAST_OT_solidify,
 )
-from ._color_panel import SILCAST_PT_color_simulator
-from ._mixture_panel import SILCAST_PT_mixture_calculator
+from ..operators.export_stl import SILCAST_OT_export_stl
+from ..operators.inherit_shape import SILCAST_OT_inherit_shape
+from ..operators.measure_volume import SILCAST_OT_measure_volume
+from ..operators.separate_loose_parts import SILCAST_OT_separate_loose_parts
+from ..operators.solidify import SILCAST_OT_apply_solidify, SILCAST_OT_solidify
+from ..properties.settings import SiliconeCastingProperties, scene_settings
+from .color import SILCAST_PT_color_simulator
+from .mixture import SILCAST_PT_mixture_calculator
 
 #: Left column of the volume row. The unit lives in the label so that the
 #: value stays a bare number, ready to be pasted into a spreadsheet.
@@ -31,19 +33,6 @@ _VOLUME_LABEL: Final = "Volume (mL)"
 #: Stands in for the value before the first measurement. Keeping it to two
 #: characters keeps the row's shape identical before and after measuring.
 _NOT_MEASURED: Final = "--"
-
-
-def _processing_section(
-    layout: bpy.types.UILayout, identifier: str, title: str
-) -> bpy.types.UILayout | None:
-    """Keep each processing task one click away without a long sidebar."""
-    # Blender returns None for the body when collapsed; the stub omits it.
-    header, body = cast(
-        tuple[bpy.types.UILayout, bpy.types.UILayout | None],
-        layout.panel(identifier, default_closed=True),
-    )
-    header.label(text=title)
-    return body
 
 
 class SILCAST_PT_main(bpy.types.Panel):
@@ -83,7 +72,7 @@ class SILCAST_PT_measurement(bpy.types.Panel):
         # `Panel.layout` is typed optional because it is unset outside a draw
         # call; Blender always populates it before invoking draw().
         assert layout is not None
-        props = context.scene.silicone_casting
+        props = scene_settings(context)
         layout.operator(SILCAST_OT_measure_volume.bl_idname, icon="DRIVER_DISTANCE")
 
         row = layout.split(factor=0.5)
@@ -147,11 +136,34 @@ class SILCAST_PT_processing(bpy.types.Panel):
     @override
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
-        # `Panel.layout` is typed optional because it is unset outside a draw
-        # call; Blender always populates it before invoking draw().
         assert layout is not None
-        props = context.scene.silicone_casting
-        solidify = _processing_section(layout, "solidify", "Solidify")
+        props = scene_settings(context)
+        self._draw_solidify(props)
+        self._draw_boolean(props)
+        self._draw_surface_cut(props)
+        self._draw_air_vents(props)
+        self._draw_inherit_shape(context)
+        layout.separator()
+        layout.operator(SILCAST_OT_separate_loose_parts.bl_idname, icon="MESH_DATA")
+        layout.separator()
+        self._draw_registration_keys(props)
+        layout.operator(SILCAST_OT_export_stl.bl_idname, icon="EXPORT")
+
+    def _section(self, identifier: str, title: str) -> bpy.types.UILayout | None:
+        """Keep each processing task one click away without a long sidebar."""
+        layout = self.layout
+        assert layout is not None
+        # Blender returns None for the body when collapsed; the stub omits it.
+        header, body = cast(
+            tuple[bpy.types.UILayout, bpy.types.UILayout | None],
+            layout.panel(identifier, default_closed=True),
+        )
+        header.label(text=title)
+        return body
+
+    def _draw_solidify(self, props: SiliconeCastingProperties) -> None:
+        """Draw wall thickness settings and apply controls."""
+        solidify = self._section("solidify", "Solidify")
         if solidify is not None:
             solidify.prop(props, "solidify_thickness")
             row = solidify.row()
@@ -160,7 +172,9 @@ class SILCAST_PT_processing(bpy.types.Panel):
             solidify.operator(SILCAST_OT_solidify.bl_idname, icon="MOD_SOLIDIFY")
             solidify.operator(SILCAST_OT_apply_solidify.bl_idname)
 
-        boolean = _processing_section(layout, "boolean", "Boolean")
+    def _draw_boolean(self, props: SiliconeCastingProperties) -> None:
+        """Draw Boolean operands, solver, and operations."""
+        boolean = self._section("boolean", "Boolean")
         if boolean is not None:
             boolean.prop(props, "boolean_operand")
             boolean.row().prop(props, "boolean_solver", expand=True)
@@ -176,7 +190,9 @@ class SILCAST_PT_processing(bpy.types.Panel):
                 )
                 button.operation = operation
 
-        cutting = _processing_section(layout, "surface_cut", "Surface Cut")
+    def _draw_surface_cut(self, props: SiliconeCastingProperties) -> None:
+        """Draw surface cutting and freehand drawing controls."""
+        cutting = self._section("surface_cut", "Surface Cut")
         if cutting is not None:
             cutting.prop(props, "boolean_operand", text="")
             cutting.prop(props, "surface_cut_thickness")
@@ -189,14 +205,19 @@ class SILCAST_PT_processing(bpy.types.Panel):
                 SILCAST_OT_edit_cutting_surface.bl_idname, icon="EDITMODE_HLT"
             )
 
-        vents = _processing_section(layout, "air_vents", "Air Vents")
+    def _draw_air_vents(self, props: SiliconeCastingProperties) -> None:
+        """Draw the air vent diameter and drawing control."""
+        vents = self._section("air_vents", "Air Vents")
         if vents is not None:
             vents.prop(props, "air_vent_diameter")
             vents.operator(SILCAST_OT_draw_air_vents.bl_idname, icon="GREASEPENCIL")
             vents.label(text="First face sets the plane")
             vents.label(text="Drag to draw / Enter to cut")
 
-        inherit = _processing_section(layout, "inherit_shape", "Inherit Shape")
+    def _draw_inherit_shape(self, context: bpy.types.Context) -> None:
+        """Draw object and collection shape inheritance."""
+        props = scene_settings(context)
+        inherit = self._section("inherit_shape", "Inherit Shape")
         if inherit is not None:
             object_row = inherit.row()
             object_row.enabled = (
@@ -213,13 +234,9 @@ class SILCAST_PT_processing(bpy.types.Panel):
                 icon="OUTLINER_COLLECTION",
             ).use_collection = True
 
-        layout.separator()
-        layout.operator(
-            SILCAST_OT_separate_loose_parts.bl_idname,
-            icon="MESH_DATA",
-        )
-        layout.separator()
-        keys = _processing_section(layout, "registration_keys", "Registration Keys")
+    def _draw_registration_keys(self, props: SiliconeCastingProperties) -> None:
+        """Draw pin dimensions, placement, and selected-key editing."""
+        keys = self._section("registration_keys", "Registration Keys")
         if keys is not None:
             keys.label(text="Active half: pin")
             keys.prop(props, "key_mate", text="Socket")
@@ -254,4 +271,3 @@ class SILCAST_PT_processing(bpy.types.Panel):
                     text="Delete Selected Key",
                     icon="X",
                 )
-        layout.operator(SILCAST_OT_export_stl.bl_idname, icon="EXPORT")

@@ -6,10 +6,10 @@ import bpy
 import pytest
 
 import silicone_casting
-from silicone_casting.core import format_hex_color, linear_rgb_to_hsl, parse_hex_color
-from silicone_casting.operators.color_simulator import (
-    _MATERIAL_PREFIX,
-    _SHADER_NODE_NAME,
+from silicone_casting.core.color_mixing import (
+    format_hex_color,
+    linear_rgb_to_hsl,
+    parse_hex_color,
 )
 
 
@@ -22,16 +22,17 @@ def registered() -> Iterator[None]:
 
 @pytest.fixture
 def settings(registered: None) -> Iterator[bpy.types.PropertyGroup]:
+    original_materials = set(bpy.data.materials)
     props = bpy.context.scene.silicone_casting
     props.color_profiles.clear()
     props.color_profile_active_index = -1
-    props.mixture_parts.clear()
+    props.mixture.parts.clear()
     yield props
     props.color_profiles.clear()
     props.color_profile_active_index = -1
-    props.mixture_parts.clear()
+    props.mixture.parts.clear()
     for material in tuple(bpy.data.materials):
-        if material.name.startswith(_MATERIAL_PREFIX) and material.users == 0:
+        if material not in original_materials and material.users == 0:
             bpy.data.materials.remove(material)
 
 
@@ -39,6 +40,14 @@ def _add_profile(settings: bpy.types.PropertyGroup) -> bpy.types.PropertyGroup:
     result = bpy.ops.silicone_casting.add_color_profile()
     assert result == {"FINISHED"}
     return settings.color_profiles[settings.color_profile_active_index]
+
+
+def _shader(profile: bpy.types.PropertyGroup) -> bpy.types.ShaderNodeBsdfPrincipled:
+    return next(
+        node
+        for node in profile.preview_material.node_tree.nodes
+        if isinstance(node, bpy.types.ShaderNodeBsdfPrincipled)
+    )
 
 
 class TestNamedProfiles:
@@ -198,7 +207,7 @@ class TestColorants:
 
         result = bpy.ops.silicone_casting.remove_colorant()
 
-        shader = profile.preview_material.node_tree.nodes[_SHADER_NODE_NAME]
+        shader = _shader(profile)
         assert result == {"FINISHED"}
         assert len(profile.colorants) == 0
         assert profile.colorant_active_index == -1
@@ -220,7 +229,7 @@ class TestColorants:
         blue.calibration_lightness_percent = 50.0
         blue.drops = 1.0
 
-        shader = profile.preview_material.node_tree.nodes[_SHADER_NODE_NAME]
+        shader = _shader(profile)
 
         assert tuple(profile.result_color) == pytest.approx(
             (0.0, 0.0, 1.0),
@@ -234,7 +243,7 @@ class TestColorants:
         white.calibration_lightness_percent = 100.0
         white.drops = 0.5
 
-        shader = profile.preview_material.node_tree.nodes[_SHADER_NODE_NAME]
+        shader = _shader(profile)
 
         assert shader.inputs["Transmission Weight"].default_value == pytest.approx(0.0)
         assert shader.inputs["Subsurface Weight"].default_value == pytest.approx(0.0)
@@ -249,9 +258,9 @@ class TestMixtureVolumeCopy:
         self, settings: bpy.types.PropertyGroup
     ) -> None:
         profile = _add_profile(settings)
-        included = settings.mixture_parts.add()
+        included = settings.mixture.parts.add()
         included.volume_ml = 40.0
-        excluded = settings.mixture_parts.add()
+        excluded = settings.mixture.parts.add()
         excluded.volume_ml = 60.0
         excluded.enabled = False
 
@@ -337,6 +346,6 @@ class TestVolumeScaling:
         profile = _add_profile(settings)
         profile["base_volume_ml"] = 40.0
         profile.colorants.add().drops = 2.5
-        settings.mixture_parts.add().volume_ml = 10
+        settings.mixture.parts.add().volume_ml = 10
         bpy.ops.silicone_casting.copy_mixture_volume_to_coloring()
         assert profile.colorants[0].drops == pytest.approx(0.625)

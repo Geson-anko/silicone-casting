@@ -4,7 +4,7 @@ from typing import cast, override
 
 import bpy
 
-from ..core import separate_loose_parts
+from ..core.separate_loose_parts import separate_loose_parts
 from ._operator import OperatorReturn, selected_meshes
 
 

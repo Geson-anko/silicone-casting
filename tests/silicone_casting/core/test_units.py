@@ -14,12 +14,12 @@ from types import ModuleType
 
 import pytest
 
-from silicone_casting.core import (
+import silicone_casting.core.units as units_module
+from silicone_casting.core.units import (
     cubic_units_to_ml,
     format_grams,
     format_ml,
     mm_to_units,
-    units as units_module,
 )
 
 
