@@ -177,7 +177,7 @@ class SILCAST_PT_processing(bpy.types.Panel):
 
         cutting = _processing_section(layout, "surface_cut", "Surface Cut")
         if cutting is not None:
-            cutting.prop(props, "boolean_operand", text="Cutting Surface")
+            cutting.prop(props, "boolean_operand", text="")
             cutting.prop(props, "surface_cut_thickness")
             cutting.operator(SILCAST_OT_add_surface_cut.bl_idname, icon="MOD_SOLIDIFY")
             cutting.separator()
@@ -196,7 +196,7 @@ class SILCAST_PT_processing(bpy.types.Panel):
                 and context.active_object.type == "MESH"
             )
             object_row.operator(SILCAST_OT_inherit_shape.bl_idname, icon="MOD_BOOLEAN")
-            inherit.prop(props, "inherit_collection")
+            inherit.prop(props, "inherit_collection", text="")
             collection_row = inherit.row()
             collection_row.enabled = props.inherit_collection is not None
             collection_row.operator(
@@ -214,7 +214,7 @@ class SILCAST_PT_processing(bpy.types.Panel):
         keys = _processing_section(layout, "registration_keys", "Registration Keys")
         if keys is not None:
             keys.label(text="Active half: pin")
-            keys.prop(props, "key_mate")
+            keys.prop(props, "key_mate", text="Socket")
             keys.prop(props, "key_shape")
             keys.prop(props, "key_width")
             if props.key_shape == "RECTANGLE":
