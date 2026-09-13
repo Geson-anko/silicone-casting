@@ -1,5 +1,6 @@
 """Scene-level RNA settings and child property-group aggregation."""
 
+from math import atan, pi, tan
 from typing import cast
 
 import bpy
@@ -103,6 +104,264 @@ class SiliconeCastingProperties(bpy.types.PropertyGroup):
         name="Even Thickness",
         description="Keep the requested wall thickness around corners",
         default=True,
+    )
+
+    key_width_mm: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Width / Diameter (mm)",
+        default=4,
+        min=0.01,
+        precision=3,
+    )
+
+    key_length_mm: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Length (mm)",
+        default=8,
+        min=0.01,
+        precision=3,
+    )
+
+    key_height_mm: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Protrusion (mm)",
+        default=3,
+        min=0.01,
+        precision=3,
+    )
+
+    key_embed_mm: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Root Overlap (mm)",
+        default=1,
+        min=0.01,
+        precision=3,
+    )
+
+    key_clearance_mm: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Clearance per Side (mm)",
+        default=0.15,
+        min=0,
+        precision=3,
+    )
+
+    key_depth_clearance_mm: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Tip Clearance (mm)",
+        default=0.2,
+        min=0,
+        precision=3,
+    )
+
+    # Preserve saved millimetres while exposing native scene-distance inputs.
+    def _get_key_width(self) -> float:
+        scene = cast(bpy.types.Scene, self.id_data)
+        return mm_to_units(
+            cast(float, getattr(self, "key_width_mm")),
+            scene.unit_settings.scale_length,
+        )
+
+    def _set_key_width(self, value: float) -> None:
+        scene = cast(bpy.types.Scene, self.id_data)
+        self.key_width_mm = value * scene.unit_settings.scale_length * 1000
+
+    key_width: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Width / Diameter",
+        subtype="DISTANCE",
+        unit="LENGTH",
+        min=0.0,
+        precision=4,
+        get=_get_key_width,
+        set=_set_key_width,
+    )
+
+    def _get_key_length(self) -> float:
+        scene = cast(bpy.types.Scene, self.id_data)
+        return mm_to_units(
+            cast(float, getattr(self, "key_length_mm")),
+            scene.unit_settings.scale_length,
+        )
+
+    def _set_key_length(self, value: float) -> None:
+        scene = cast(bpy.types.Scene, self.id_data)
+        self.key_length_mm = value * scene.unit_settings.scale_length * 1000
+
+    key_length: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Length",
+        subtype="DISTANCE",
+        unit="LENGTH",
+        min=0.0,
+        precision=4,
+        get=_get_key_length,
+        set=_set_key_length,
+    )
+
+    def _get_key_height(self) -> float:
+        scene = cast(bpy.types.Scene, self.id_data)
+        return mm_to_units(
+            cast(float, getattr(self, "key_height_mm")),
+            scene.unit_settings.scale_length,
+        )
+
+    def _set_key_height(self, value: float) -> None:
+        scene = cast(bpy.types.Scene, self.id_data)
+        self.key_height_mm = value * scene.unit_settings.scale_length * 1000
+
+    key_height: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Protrusion",
+        subtype="DISTANCE",
+        unit="LENGTH",
+        min=0.0,
+        precision=4,
+        get=_get_key_height,
+        set=_set_key_height,
+    )
+
+    def _get_key_embed(self) -> float:
+        scene = cast(bpy.types.Scene, self.id_data)
+        return mm_to_units(
+            cast(float, getattr(self, "key_embed_mm")),
+            scene.unit_settings.scale_length,
+        )
+
+    def _set_key_embed(self, value: float) -> None:
+        scene = cast(bpy.types.Scene, self.id_data)
+        self.key_embed_mm = value * scene.unit_settings.scale_length * 1000
+
+    key_embed: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Root Overlap",
+        subtype="DISTANCE",
+        unit="LENGTH",
+        min=0.0,
+        precision=4,
+        get=_get_key_embed,
+        set=_set_key_embed,
+    )
+
+    def _get_key_clearance(self) -> float:
+        scene = cast(bpy.types.Scene, self.id_data)
+        return mm_to_units(
+            cast(float, getattr(self, "key_clearance_mm")),
+            scene.unit_settings.scale_length,
+        )
+
+    def _set_key_clearance(self, value: float) -> None:
+        scene = cast(bpy.types.Scene, self.id_data)
+        self.key_clearance_mm = value * scene.unit_settings.scale_length * 1000
+
+    key_clearance: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Clearance per Side",
+        subtype="DISTANCE",
+        unit="LENGTH",
+        min=0.0,
+        precision=4,
+        get=_get_key_clearance,
+        set=_set_key_clearance,
+    )
+
+    def _get_key_depth_clearance(self) -> float:
+        scene = cast(bpy.types.Scene, self.id_data)
+        return mm_to_units(
+            cast(float, getattr(self, "key_depth_clearance_mm")),
+            scene.unit_settings.scale_length,
+        )
+
+    def _set_key_depth_clearance(self, value: float) -> None:
+        scene = cast(bpy.types.Scene, self.id_data)
+        self.key_depth_clearance_mm = value * scene.unit_settings.scale_length * 1000
+
+    key_depth_clearance: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Tip Clearance",
+        subtype="DISTANCE",
+        unit="LENGTH",
+        min=0.0,
+        precision=4,
+        get=_get_key_depth_clearance,
+        set=_set_key_depth_clearance,
+    )
+
+    key_active: PointerProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Selected Key",
+        type=bpy.types.Object,
+    )
+    key_axis: EnumProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Direction",
+        items=(("X", "X", "World X"), ("Y", "Y", "World Y"), ("Z", "Z", "World Z")),
+        default="Z",
+    )
+
+    key_shape: EnumProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Shape",
+        items=(
+            ("CYLINDER", "Round Dowel", "Cylindrical alignment pin"),
+            ("TAPERED", "Tapered Dowel", "Lead-in taper for easier assembly"),
+            (
+                "RECTANGLE",
+                "Rectangular Key",
+                "Anti-rotation key or elongated tongue and groove",
+            ),
+        ),
+        default="TAPERED",
+    )
+    key_taper: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Tip Reduction",
+        subtype="FACTOR",
+        default=0.2,
+        min=0.0,
+        max=0.9,
+    )
+
+    def _get_key_taper_angle(self) -> float:
+        width = cast(float, getattr(self, "key_width_mm"))
+        height = cast(float, getattr(self, "key_height_mm"))
+        taper = cast(float, getattr(self, "key_taper"))
+        return atan(width * taper / (2 * height))
+
+    def _set_key_taper_angle(self, value: float) -> None:
+        width = cast(float, getattr(self, "key_width_mm"))
+        height = cast(float, getattr(self, "key_height_mm"))
+        self.key_taper = min(0.9, 2 * height * tan(value) / width)
+
+    key_taper_angle: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Taper Angle",
+        description=(
+            "Sidewall angle from the dowel axis (0 is cylindrical). "
+            "Linked to tip reduction, diameter and protrusion; "
+            "limited to 90% tip reduction. Changing dimensions recalculates the angle"
+        ),
+        subtype="ANGLE",
+        unit="ROTATION",
+        min=0.0,
+        max=pi / 2 - 0.0001,
+        precision=2,
+        get=_get_key_taper_angle,
+        set=_set_key_taper_angle,
+    )
+    key_angle: FloatProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Rotation",
+        subtype="ANGLE",
+        default=0.0,
+    )
+    key_align_normal: BoolProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Perpendicular to Face",
+        default=True,
+        description="Align with the nearest face normal; disable to use the selected world axis",
+    )
+    key_flip: BoolProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Flip Direction",
+        default=False,
+    )
+    key_mate: PointerProperty(  # pyright: ignore[reportInvalidTypeForm]
+        name="Socket Half",
+        type=bpy.types.Object,
+        poll=_mesh_object_poll,
+    )
+    key_preview_pin: PointerProperty(  # pyright: ignore[reportInvalidTypeForm]
+        type=bpy.types.Object,
+    )
+    key_preview_socket: PointerProperty(  # pyright: ignore[reportInvalidTypeForm]
+        type=bpy.types.Object,
+    )
+    key_preview_target: PointerProperty(  # pyright: ignore[reportInvalidTypeForm]
+        type=bpy.types.Object,
+    )
+    key_preview_mate: PointerProperty(  # pyright: ignore[reportInvalidTypeForm]
+        type=bpy.types.Object,
     )
 
     inherit_collection: PointerProperty(  # pyright: ignore[reportInvalidTypeForm]

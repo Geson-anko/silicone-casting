@@ -17,6 +17,8 @@
 
 ## feedback
 
+- [寸法入力の単位型](feedback_distance_inputs.md) — 寸法・隙間は `(mm)` 固定数値ではなく DISTANCE / LENGTH を使う
+
 - [計画・仕様書の言語](feedback_planning_doc_language.md) — 仕様書・AGENTS.md・skill は日本語で書く
 - [ユーザー向けドキュメントは後回し](feedback_defer_user_docs.md) — README / docs は依頼されるまで書かない
 - [モディファイア出力に golden を作らない](feedback_no_golden_for_modifier_output.md) — Blender 標準モディファイアの結果は不変量だけで検証する
@@ -26,6 +28,8 @@
 - [Surface Cut と loose-part 分離](feedback_surface_cut_and_separation.md) — 1本の統合モディファイアと、評価済みコピーを元と同じコレクションへフラットに出力する分離フロー
 
 ## specs
+
+- [切断面のダボ・噛み合わせ](specs/registration_keys.md) — 3 種の凸／凹、クリアランス、面への配置とプレビュー・確定
 
 - [自由描画による曲面切断](specs/drawn_surface_cut.md) — 共通のループ入力から自動補間した切断面を生成し、内部の曲がりを編集できる
 

@@ -472,6 +472,62 @@ def check_boolean_modifier_uses_the_requested_inputs() -> None:
     assert modifier.solver == "MANIFOLD"
 
 
+def check_registration_keys_preview_and_commit() -> None:
+    """Installed key operators produce paired evaluated solids."""
+    import importlib
+
+    world_volume = importlib.import_module(f"{ADDON_MODULE}.core.volume").world_volume
+    scene = bpy.context.scene
+    settings = scene.silicone_casting
+    old_scale = scene.unit_settings.scale_length
+    old_cursor = scene.cursor.location.copy()
+    created = []
+    try:
+        scene.unit_settings.scale_length = 0.001
+        _deselect_everything()
+        bpy.ops.mesh.primitive_cube_add(size=20, location=(0, 0, -10))
+        pin_half = bpy.context.active_object
+        created.append(pin_half)
+        bpy.ops.mesh.primitive_cube_add(size=20, location=(0, 0, 10))
+        socket_half = bpy.context.active_object
+        created.append(socket_half)
+        socket_half.select_set(False)
+        pin_half.select_set(True)
+        bpy.context.view_layer.objects.active = pin_half
+        settings.key_mate = socket_half
+        settings.key_shape = "TAPERED"
+        scene.cursor.location = (0, 0, 0)
+        assert bpy.ops.silicone_casting.preview_registration_key() == {"FINISHED"}
+        assert not pin_half.modifiers and not socket_half.modifiers
+        created.extend((settings.key_preview_pin, settings.key_preview_socket))
+        assert bpy.ops.silicone_casting.commit_registration_key() == {"FINISHED"}
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        assert world_volume(pin_half, depsgraph) > 8000
+        assert 0 < world_volume(socket_half, depsgraph) < 8000
+        assert settings.key_preview_pin is None
+        assert bpy.ops.silicone_casting.add_registration_key(
+            location=(5, 0, 0), normal=(0, 0, 1)
+        ) == {"FINISHED"}
+        key = settings.key_active
+        assert key is not None
+        settings.key_width = 3
+        assert bpy.ops.silicone_casting.edit_registration_key() == {"FINISHED"}
+        assert bpy.ops.silicone_casting.move_registration_key(
+            key_name=key.name, location=(5, 3, 0), normal=(0, 0, 1)
+        ) == {"FINISHED"}
+        assert bpy.ops.silicone_casting.delete_registration_key() == {"FINISHED"}
+        assert len(pin_half.modifiers) == len(socket_half.modifiers) == 1
+    finally:
+        settings.key_mate = None
+        for obj in created:
+            mesh = obj.data
+            bpy.data.objects.remove(obj, do_unlink=True)
+            if mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
+        scene.unit_settings.scale_length = old_scale
+        scene.cursor.location = old_cursor
+
+
 def check_surface_cut_is_one_integrated_modifier() -> None:
     """One installed modifier must solidify and subtract the surface."""
     _deselect_everything()
@@ -763,6 +819,7 @@ CHECKS = (
     check_named_color_profiles_update_and_apply_independently,
     check_solidify_then_apply_gives_a_double_walled_cube,
     check_boolean_modifier_uses_the_requested_inputs,
+    check_registration_keys_preview_and_commit,
     check_surface_cut_is_one_integrated_modifier,
     check_loose_parts_become_separate_objects,
     check_measuring_a_closed_cube_stores_its_millilitres,
