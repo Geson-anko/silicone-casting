@@ -4,7 +4,7 @@ from collections.abc import Callable, Iterable
 
 import pytest
 
-from silicone_casting.core import (
+from silicone_casting.core.color_mixing import (
     CalibratedColorant,
     SimulatedSiliconeAppearance,
     format_hex_color,
@@ -13,8 +13,6 @@ from silicone_casting.core import (
     linear_rgb_to_srgb8,
     parse_hex_color,
     saturated_hsl_to_linear_rgb,
-    simulate_silicone_appearance,
-    simulate_silicone_color,
 )
 
 WHITE = (1.0, 1.0, 1.0)
@@ -23,7 +21,7 @@ WHITE = (1.0, 1.0, 1.0)
 def test_no_colorant_preserves_the_base_color() -> None:
     base = (1.0, 0.9, 0.7)
 
-    result = simulate_silicone_color(base, 100.0, [])
+    result = SimulatedSiliconeAppearance.from_mixture(base, 100.0, 0.0, []).color
 
     assert result == pytest.approx(base)
 
@@ -32,7 +30,9 @@ def test_dye_specific_calibration_concentration_reproduces_its_color() -> None:
     calibration = (0.8, 0.2, 0.1)
     colorant = CalibratedColorant(calibration, 2.0, 200.0)
 
-    result = simulate_silicone_color(WHITE, 100.0, [colorant])
+    result = SimulatedSiliconeAppearance.from_mixture(
+        WHITE, 100.0, 0.0, [colorant]
+    ).color
 
     assert result == pytest.approx(calibration, abs=1e-4)
 
@@ -40,7 +40,9 @@ def test_dye_specific_calibration_concentration_reproduces_its_color() -> None:
 def test_doubling_base_volume_mixes_equal_parts_base_and_calibration_color() -> None:
     colorant = CalibratedColorant((0.25, 0.64, 0.81), 1.0, 100.0)
 
-    result = simulate_silicone_color(WHITE, 200.0, [colorant])
+    result = SimulatedSiliconeAppearance.from_mixture(
+        WHITE, 200.0, 0.0, [colorant]
+    ).color
 
     assert result == pytest.approx(
         (0.509796, 0.802891, 0.901514),
@@ -52,8 +54,12 @@ def test_multiple_colorants_are_independent_of_row_order() -> None:
     red = CalibratedColorant((0.9, 0.3, 0.3), 0.75, 60.0)
     blue = CalibratedColorant((0.3, 0.4, 0.9), 2.0, 100.0)
 
-    forward = simulate_silicone_color(WHITE, 80.0, [red, blue])
-    reverse = simulate_silicone_color(WHITE, 80.0, [blue, red])
+    forward = SimulatedSiliconeAppearance.from_mixture(
+        WHITE, 80.0, 0.0, [red, blue]
+    ).color
+    reverse = SimulatedSiliconeAppearance.from_mixture(
+        WHITE, 80.0, 0.0, [blue, red]
+    ).color
 
     assert forward == pytest.approx(reverse)
 
@@ -64,7 +70,7 @@ def test_disabled_and_zero_drop_rows_do_not_contribute() -> None:
         CalibratedColorant((0.2, 0.3, 0.4), 1.0, 0.0),
     ]
 
-    result = simulate_silicone_color(WHITE, 100.0, ignored)
+    result = SimulatedSiliconeAppearance.from_mixture(WHITE, 100.0, 0.0, ignored).color
 
     assert result == pytest.approx(WHITE)
 
@@ -73,7 +79,9 @@ def test_calibration_color_can_be_brighter_than_the_base() -> None:
     base = (0.8, 0.7, 0.6)
     colorant = CalibratedColorant((0.9, 0.5, 0.3), 1.0, 100.0)
 
-    result = simulate_silicone_color(base, 100.0, [colorant])
+    result = SimulatedSiliconeAppearance.from_mixture(
+        base, 100.0, 0.0, [colorant]
+    ).color
 
     assert result == pytest.approx((0.9, 0.5, 0.3), abs=2e-4)
 
@@ -81,14 +89,14 @@ def test_calibration_color_can_be_brighter_than_the_base() -> None:
 @pytest.mark.parametrize("volume", [0.0, -1.0])
 def test_non_positive_base_volume_is_rejected(volume: float) -> None:
     with pytest.raises(ValueError, match="volume"):
-        simulate_silicone_color(WHITE, volume, [])
+        SimulatedSiliconeAppearance.from_mixture(WHITE, volume, 0.0, []).color
 
 
 def test_non_positive_calibration_drops_are_rejected_when_used() -> None:
     colorant = CalibratedColorant((0.5, 0.5, 0.5), 0.0, 1.0)
 
     with pytest.raises(ValueError, match="Calibration"):
-        simulate_silicone_color(WHITE, 100.0, [colorant])
+        SimulatedSiliconeAppearance.from_mixture(WHITE, 100.0, 0.0, [colorant]).color
 
 
 def test_white_uses_the_shared_spectral_rule_and_reaches_opaque_at_calibration() -> (
@@ -96,7 +104,7 @@ def test_white_uses_the_shared_spectral_rule_and_reaches_opaque_at_calibration()
 ):
     white = CalibratedColorant(WHITE, 1.0, 100.0)
 
-    result = simulate_silicone_appearance(
+    result = SimulatedSiliconeAppearance.from_mixture(
         (1.0, 0.9, 0.7),
         100.0,
         0.8,

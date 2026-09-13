@@ -56,17 +56,3 @@ class MixtureBreakdown:
             a_weight_g=a_weight_g,
             b_weight_g=b_weight_g,
         )
-
-
-def calculate_mixture(
-    volume_ml: float,
-    density_a_g_per_ml: float,
-    density_b_g_per_ml: float,
-    ratio_a: float,
-    ratio_b: float,
-) -> MixtureBreakdown:
-    """Return a mixture breakdown using
-    :meth:`MixtureBreakdown.from_volume`."""
-    return MixtureBreakdown.from_volume(
-        volume_ml, density_a_g_per_ml, density_b_g_per_ml, ratio_a, ratio_b
-    )

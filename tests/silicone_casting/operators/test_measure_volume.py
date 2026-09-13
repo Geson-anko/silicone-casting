@@ -25,8 +25,9 @@ import pytest
 from _helpers import make_cube_mesh
 
 import silicone_casting
-from silicone_casting.core import MODIFIER_NAME, format_ml
-from silicone_casting.operators import SILCAST_OT_measure_volume
+from silicone_casting.core.solidify import MODIFIER_NAME
+from silicone_casting.core.units import format_ml
+from silicone_casting.operators.measure_volume import SILCAST_OT_measure_volume
 
 #: Edge length of the test cubes in Blender units: a 2 cm cube at 1 BU = 1 m.
 CUBE_EDGE_BU = 0.02

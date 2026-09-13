@@ -5,13 +5,12 @@ from math import pi, sin
 
 import bpy
 import pytest
-from _helpers import mesh_invariants
+from _helpers import MeshInvariants
 from conftest import MakeObject
 from mathutils import Vector
 
 from silicone_casting.core.registration_keys import (
     KeyDimensions,
-    create_key_mesh,
     placement_matrix,
 )
 
@@ -39,7 +38,7 @@ def test_each_key_and_socket_is_one_watertight_outward_solid(
     mesh = replace(dimensions, shape=shape).create_mesh("Key", socket=socket)
     make_object(mesh)
 
-    invariants = mesh_invariants(mesh)
+    invariants = MeshInvariants.from_mesh(mesh)
     assert invariants.is_watertight
     assert invariants.loose_part_count == 1
     # Every face of these convex solids must point away from their interior.
@@ -71,10 +70,10 @@ def test_socket_adds_clearance_per_side_and_only_extends_the_tip(
     upper: tuple[float, float, float],
     volume: float,
 ) -> None:
-    mesh = create_key_mesh("Key", replace(dimensions, shape=shape), socket=socket)
+    mesh = replace(dimensions, shape=shape).create_mesh("Key", socket=socket)
     make_object(mesh)
 
-    invariants = mesh_invariants(mesh)
+    invariants = MeshInvariants.from_mesh(mesh)
     assert invariants.bbox_min == pytest.approx(lower)
     assert invariants.bbox_max == pytest.approx(upper)
     assert invariants.volume == pytest.approx(volume)
@@ -90,7 +89,7 @@ def test_tapered_key_narrows_toward_the_tip(
     assert top
     assert top == pytest.approx([1.6] * len(top))
     # One unit of straight root plus three units of polygonal frustum.
-    assert mesh_invariants(mesh).volume == pytest.approx(
+    assert MeshInvariants.from_mesh(mesh).volume == pytest.approx(
         32 * sin(pi / 32) * (2**2 + (2**2 + 2 * 1.6 + 1.6**2))
     )
 
@@ -118,7 +117,7 @@ def test_zero_clearance_socket_has_the_same_dimensions_as_the_key(
     make_object(male)
     make_object(female)
 
-    assert mesh_invariants(male) == mesh_invariants(female)
+    assert MeshInvariants.from_mesh(male) == MeshInvariants.from_mesh(female)
 
 
 @pytest.mark.parametrize(

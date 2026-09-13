@@ -14,9 +14,9 @@ import pytest
 from _helpers import make_cube_mesh
 
 import silicone_casting
-from silicone_casting.operators import SILCAST_OT_export_stl
 from silicone_casting.operators.export_stl import (
     _LAST_EXPORT_DIRECTORY_KEY,
+    SILCAST_OT_export_stl,
     _default_filepath,
 )
 

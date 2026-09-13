@@ -127,11 +127,3 @@ def world_volume(obj: bpy.types.Object, depsgraph: bpy.types.Depsgraph) -> float
         # to_mesh_clear() is harmless even if to_mesh() never succeeded.
         bm.free()
         evaluated.to_mesh_clear()
-
-
-def total_volume(
-    objects: Iterable[bpy.types.Object], depsgraph: bpy.types.Depsgraph
-) -> VolumeSummary:
-    """Sum world-space mesh volumes using
-    :meth:`VolumeSummary.from_objects`."""
-    return VolumeSummary.from_objects(objects, depsgraph)

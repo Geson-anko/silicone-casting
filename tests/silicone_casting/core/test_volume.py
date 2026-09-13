@@ -10,7 +10,7 @@ spec's 9 preamble).
 The degenerate inputs are built face list by face list in this module so
 that "open" and "non-manifold" are visible in the test source. Their
 boundary and non-manifold edge counts are asserted through
-:func:`tests._helpers.mesh_invariants`, which reaches its verdict from
+:meth:`tests._helpers.MeshInvariants.from_mesh`, which reaches its verdict from
 edge/face counts on its own -- the spec (5.2) requires that the test-side
 watertight decision stay separate from the implementation's, so neither
 can excuse the other.
@@ -20,15 +20,11 @@ from collections.abc import Callable, Iterable, Iterator
 
 import bpy
 import pytest
-from _helpers import make_cube_mesh, mesh_invariants
+from _helpers import MeshInvariants, make_cube_mesh
 from conftest import CUBE_SIZE, MakeObject
 
-from silicone_casting.core import (
-    VolumeSummary,
-    ensure_solidify,
-    total_volume,
-    world_volume,
-)
+from silicone_casting.core.solidify import ensure_solidify
+from silicone_casting.core.volume import VolumeSummary, world_volume
 
 #: The cube of ``conftest`` spans -1..1 on every axis, so 8 cubic units.
 EXPECTED_CUBE_VOLUME = CUBE_SIZE**3
@@ -144,7 +140,7 @@ class TestTheDegenerateInputsAreWhatTheyClaimToBe:
     def test_the_open_cube_has_a_four_edge_boundary_and_no_other_defect(
         self, open_cube_object: bpy.types.Object
     ) -> None:
-        invariants = mesh_invariants(open_cube_object.data)
+        invariants = MeshInvariants.from_mesh(open_cube_object.data)
 
         assert invariants.boundary_edge_count == 4
         assert invariants.non_manifold_edge_count == 0
@@ -155,7 +151,7 @@ class TestTheDegenerateInputsAreWhatTheyClaimToBe:
         # The added triangle also brings two boundary edges of its own
         # (its two free sides), which is why the spec treats boundary and
         # non-manifold edges as one condition rather than two.
-        invariants = mesh_invariants(non_manifold_cube_object.data)
+        invariants = MeshInvariants.from_mesh(non_manifold_cube_object.data)
 
         assert invariants.non_manifold_edge_count == 1
         assert invariants.boundary_edge_count == 2
@@ -335,7 +331,7 @@ class TestTotalVolumeOverASelection:
         # occurrence. It must neither raise, nor count, nor be reported.
         other = make_object(make_cube_mesh(CUBE_SIZE, "OtherCube"), "OtherCube")
 
-        summary = total_volume(
+        summary = VolumeSummary.from_objects(
             [cube_object, camera_object, other], bpy.context.evaluated_depsgraph_get()
         )
 
@@ -414,12 +410,12 @@ class TestTotalVolumeOverASelection:
         # AC-30: the whole feature is read-only over geometry (6.2). The
         # invariants cover counts, volume and bounding box, so a stray
         # bmesh write-back or a baked modifier would show up here.
-        closed_before = mesh_invariants(cube_object.data)
-        open_before = mesh_invariants(open_cube_object.data)
+        closed_before = MeshInvariants.from_mesh(cube_object.data)
+        open_before = MeshInvariants.from_mesh(open_cube_object.data)
 
         VolumeSummary.from_objects(
             [cube_object, open_cube_object], bpy.context.evaluated_depsgraph_get()
         )
 
-        assert mesh_invariants(cube_object.data) == closed_before
-        assert mesh_invariants(open_cube_object.data) == open_before
+        assert MeshInvariants.from_mesh(cube_object.data) == closed_before
+        assert MeshInvariants.from_mesh(open_cube_object.data) == open_before

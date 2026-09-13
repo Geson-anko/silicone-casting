@@ -5,8 +5,9 @@ import pytest
 from mathutils import Vector
 
 import silicone_casting
-from silicone_casting.core import create_surface_cut, interpolate_cutting_surface
-from silicone_casting.operators import (
+from silicone_casting.core.drawn_surface import interpolate_cutting_surface
+from silicone_casting.core.surface_cut import create_surface_cut
+from silicone_casting.operators.draw_surface_cut import (
     SILCAST_OT_draw_surface_cut,
     SILCAST_OT_edit_cutting_surface,
     cancel_surface_drawing,

@@ -4,9 +4,9 @@ from collections.abc import Iterator
 
 import bpy
 import pytest
-from _helpers import MeshInvariants, make_cube_mesh, mesh_invariants
+from _helpers import MeshInvariants, make_cube_mesh
 
-from silicone_casting.core import (
+from silicone_casting.core.surface_cut import (
     SURFACE_CUT_MODIFIER_NAME,
     create_surface_cut,
 )
@@ -61,7 +61,7 @@ def _evaluated_invariants(target: bpy.types.Object) -> MeshInvariants:
     evaluated = target.evaluated_get(bpy.context.evaluated_depsgraph_get())
     result = bpy.data.meshes.new_from_object(evaluated)
     try:
-        return mesh_invariants(result)
+        return MeshInvariants.from_mesh(result)
     finally:
         bpy.data.meshes.remove(result)
 

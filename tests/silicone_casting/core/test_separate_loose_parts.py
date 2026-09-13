@@ -4,9 +4,9 @@ from collections.abc import Iterator
 
 import bpy
 import pytest
-from _helpers import make_cube_mesh, mesh_invariants
+from _helpers import MeshInvariants, make_cube_mesh
 
-from silicone_casting.core import separate_loose_parts
+from silicone_casting.core.separate_loose_parts import separate_loose_parts
 
 TETRAHEDRA_VERTICES = [
     (0.0, 0.0, 0.0),
@@ -61,7 +61,7 @@ def test_each_disconnected_component_becomes_one_mesh_object(
 
     assert len(parts) == 2
     assert parts[0] == source
-    invariants = [mesh_invariants(part.data) for part in parts]
+    invariants = [MeshInvariants.from_mesh(part.data) for part in parts]
     assert all(item.vertex_count == 4 for item in invariants)
     assert all(item.edge_count == 6 for item in invariants)
     assert all(item.face_count == 4 for item in invariants)

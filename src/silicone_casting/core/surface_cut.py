@@ -1,6 +1,6 @@
 """A Geometry Nodes modifier that cuts a mesh with a thin surface."""
 
-from typing import Final, Protocol, cast
+from typing import Final, cast
 
 import bpy
 
@@ -11,19 +11,6 @@ MIN_SURFACE_CUT_THICKNESS_MM: Final = 0.001
 # the extruded sides. Weld those exact pairs without collapsing the two faces
 # of the thin cutter into each other.
 _MERGE_DISTANCE_FACTOR: Final = 0.49
-
-
-class _EnumItem(Protocol):
-    name: str
-    description: str
-
-
-class _EnumItems(Protocol):
-    def __getitem__(self, index: int) -> _EnumItem: ...
-
-
-class _EnumDefinition(Protocol):
-    enum_items: _EnumItems
 
 
 def _input(node: bpy.types.Node, key: str | int) -> bpy.types.NodeSocket:
@@ -64,7 +51,7 @@ class _SurfaceCutBuilder:
             self._group.nodes.new("GeometryNodeMenuSwitch"),
         )
         switch.data_type = "GEOMETRY"
-        items = cast(_EnumDefinition, switch.enum_definition).enum_items
+        items = switch.enum_items
         items[0].name = "Manifold"
         items[0].description = "Fast solver for manifold meshes"
         items[1].name = "Exact"

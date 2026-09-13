@@ -4,7 +4,7 @@ from dataclasses import fields
 
 import pytest
 
-from silicone_casting.core import MixtureBreakdown, calculate_mixture
+from silicone_casting.core.mixture import MixtureBreakdown
 
 
 def _assert_breakdown(actual: MixtureBreakdown, expected: MixtureBreakdown) -> None:
@@ -16,7 +16,7 @@ def _assert_breakdown(actual: MixtureBreakdown, expected: MixtureBreakdown) -> N
 
 class TestCalculateMixture:
     def test_equal_density_and_ratio_split_one_hundred_ml_evenly(self) -> None:
-        actual = calculate_mixture(100.0, 1.1, 1.1, 1.0, 1.0)
+        actual = MixtureBreakdown.from_volume(100.0, 1.1, 1.1, 1.0, 1.0)
 
         _assert_breakdown(
             actual,

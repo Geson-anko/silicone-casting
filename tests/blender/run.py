@@ -155,34 +155,38 @@ def check_scene_properties() -> None:
         "surface_cut_thickness_mm",
         "surface_cut_margin_mm",
         "surface_cut_input_mode",
-        "mixture_use_shared_density",
-        "mixture_density_a_g_per_ml",
-        "mixture_density_b_g_per_ml",
-        "mixture_ratio_a",
-        "mixture_ratio_b",
-        "mixture_parts",
-        "mixture_selection_anchor",
-        "mixture_active_index",
+        "mixture",
         "color_profiles",
         "color_profile_active_index",
     ):
         assert name in names, f"{name} is missing; scene settings have {sorted(names)}"
+    mixture_names = set(settings.mixture.bl_rna.properties.keys())
+    assert {
+        "use_shared_density",
+        "density_a_g_per_ml",
+        "density_b_g_per_ml",
+        "ratio_a",
+        "ratio_b",
+        "parts",
+        "selection_anchor",
+        "active_index",
+    } <= mixture_names
 
 
 def check_mixture_part_operations() -> None:
     """The installed add-on must add, select, move, and remove rows."""
     settings = bpy.context.scene.silicone_casting
-    settings.mixture_parts.clear()
+    settings.mixture.parts.clear()
     for name in ("A", "B", "C", "D"):
         result = bpy.ops.silicone_casting.add_mixture_part()
         assert result == {"FINISHED"}, f"add_mixture_part returned {result}"
-        settings.mixture_parts[-1].part_name = name
+        settings.mixture.parts[-1].part_name = name
 
     bpy.ops.silicone_casting.select_mixture_part(index=1, mode="REPLACE")
     bpy.ops.silicone_casting.select_mixture_part(index=3, mode="TOGGLE")
     result = bpy.ops.silicone_casting.move_mixture_parts(direction="UP")
     assert result == {"FINISHED"}, f"move_mixture_parts returned {result}"
-    assert [part.part_name for part in settings.mixture_parts] == [
+    assert [part.part_name for part in settings.mixture.parts] == [
         "B",
         "A",
         "D",
@@ -191,8 +195,8 @@ def check_mixture_part_operations() -> None:
 
     result = bpy.ops.silicone_casting.remove_mixture_parts()
     assert result == {"FINISHED"}, f"remove_mixture_parts returned {result}"
-    assert [part.part_name for part in settings.mixture_parts] == ["A", "C"]
-    assert settings.mixture_selection_anchor == -1
+    assert [part.part_name for part in settings.mixture.parts] == ["A", "C"]
+    assert settings.mixture.selection_anchor == -1
 
 
 def check_named_color_profiles_update_and_apply_independently() -> None:
@@ -244,12 +248,12 @@ def check_named_color_profiles_update_and_apply_independently() -> None:
 def _prepare_saved_mixture_settings() -> None:
     """Populate independent mixture rows and color profiles before saving."""
     settings = bpy.context.scene.silicone_casting
-    settings.mixture_parts.clear()
-    settings.mixture_use_shared_density = False
-    settings.mixture_density_a_g_per_ml = 1.5
-    settings.mixture_density_b_g_per_ml = 1.0
-    settings.mixture_ratio_a = 3.0
-    settings.mixture_ratio_b = 1.0
+    settings.mixture.parts.clear()
+    settings.mixture.use_shared_density = False
+    settings.mixture.density_a_g_per_ml = 1.5
+    settings.mixture.density_b_g_per_ml = 1.0
+    settings.mixture.ratio_a = 3.0
+    settings.mixture.ratio_b = 1.0
     settings.color_profiles.clear()
     settings.color_profile_active_index = -1
 
@@ -284,35 +288,35 @@ def _prepare_saved_mixture_settings() -> None:
     white.calibration_lightness_percent = 100.0
     white.drops = 50.0
 
-    body = settings.mixture_parts.add()
+    body = settings.mixture.parts.add()
     body.enabled = True
     body.selected = False
     body.part_name = "Body"
     body.volume_ml = 60.0
 
-    lid = settings.mixture_parts.add()
+    lid = settings.mixture.parts.add()
     lid.enabled = False
     lid.selected = True
     lid.part_name = "Lid"
     lid.volume_ml = 30.0
-    settings.mixture_selection_anchor = 1
-    settings.mixture_active_index = 1
+    settings.mixture.selection_anchor = 1
+    settings.mixture.active_index = 1
 
 
 def _assert_loaded_mixture_inputs(loaded: bpy.types.PropertyGroup) -> None:
     """Verify saved values and the reset of transient row selection after
     loading."""
-    assert not loaded.mixture_use_shared_density
-    assert abs(loaded.mixture_density_a_g_per_ml - 1.5) <= TOLERANCE
-    assert abs(loaded.mixture_density_b_g_per_ml - 1.0) <= TOLERANCE
-    assert abs(loaded.mixture_ratio_a - 3.0) <= TOLERANCE
-    assert abs(loaded.mixture_ratio_b - 1.0) <= TOLERANCE
-    assert [part.part_name for part in loaded.mixture_parts] == ["Body", "Lid"]
-    assert [part.enabled for part in loaded.mixture_parts] == [True, False]
-    assert [part.selected for part in loaded.mixture_parts] == [False, True]
-    assert [part.volume_ml for part in loaded.mixture_parts] == [60.0, 30.0]
-    assert loaded.mixture_selection_anchor == -1
-    assert loaded.mixture_active_index == -1
+    assert not loaded.mixture.use_shared_density
+    assert abs(loaded.mixture.density_a_g_per_ml - 1.5) <= TOLERANCE
+    assert abs(loaded.mixture.density_b_g_per_ml - 1.0) <= TOLERANCE
+    assert abs(loaded.mixture.ratio_a - 3.0) <= TOLERANCE
+    assert abs(loaded.mixture.ratio_b - 1.0) <= TOLERANCE
+    assert [part.part_name for part in loaded.mixture.parts] == ["Body", "Lid"]
+    assert [part.enabled for part in loaded.mixture.parts] == [True, False]
+    assert [part.selected for part in loaded.mixture.parts] == [False, True]
+    assert [part.volume_ml for part in loaded.mixture.parts] == [60.0, 30.0]
+    assert loaded.mixture.selection_anchor == -1
+    assert loaded.mixture.active_index == -1
 
 
 def _assert_loaded_color_profiles(loaded: bpy.types.PropertyGroup) -> None:
@@ -496,11 +500,14 @@ def check_boolean_modifier_uses_the_requested_inputs() -> None:
     assert modifier.solver == "MANIFOLD"
 
 
-def check_registration_keys_preview_and_commit() -> None:
+def check_registration_keys_create_edit_and_delete() -> None:
     """Installed key operators produce paired evaluated solids."""
     import importlib
 
+    from mathutils import Vector
+
     world_volume = importlib.import_module(f"{ADDON_MODULE}.core.volume").world_volume
+    key_models = importlib.import_module(f"{ADDON_MODULE}.operators.key_models")
     scene = bpy.context.scene
     settings = scene.silicone_casting
     old_scale = scene.unit_settings.scale_length
@@ -521,24 +528,25 @@ def check_registration_keys_preview_and_commit() -> None:
         settings.key_mate = socket_half
         settings.key_shape = "TAPERED"
         scene.cursor.location = (0, 0, 0)
-        assert bpy.ops.silicone_casting.preview_registration_key() == {"FINISHED"}
-        assert not pin_half.modifiers and not socket_half.modifiers
-        created.extend((settings.key_preview_pin, settings.key_preview_socket))
-        assert bpy.ops.silicone_casting.commit_registration_key() == {"FINISHED"}
+        first = key_models.KeyPair.create(
+            bpy.context,
+            key_models.KeySettings.from_context(bpy.context),
+            Vector((0, 0, 0)),
+            Vector((0, 0, 1)),
+        )
+        created.extend((first.pin, first.socket))
         depsgraph = bpy.context.evaluated_depsgraph_get()
         assert world_volume(pin_half, depsgraph) > 8000
         assert 0 < world_volume(socket_half, depsgraph) < 8000
-        assert settings.key_preview_pin is None
-        assert bpy.ops.silicone_casting.add_registration_key(
-            location=(5, 0, 0), normal=(0, 0, 1)
-        ) == {"FINISHED"}
-        key = settings.key_active
-        assert key is not None
+        second = key_models.KeyPair.create(
+            bpy.context,
+            key_models.KeySettings.from_context(bpy.context),
+            Vector((5, 0, 0)),
+            Vector((0, 0, 1)),
+        )
         settings.key_width = 3
         assert bpy.ops.silicone_casting.edit_registration_key() == {"FINISHED"}
-        assert bpy.ops.silicone_casting.move_registration_key(
-            key_name=key.name, location=(5, 3, 0), normal=(0, 0, 1)
-        ) == {"FINISHED"}
+        second.move(bpy.context, Vector((5, 3, 0)), Vector((0, 0, 1)))
         assert bpy.ops.silicone_casting.delete_registration_key() == {"FINISHED"}
         assert len(pin_half.modifiers) == len(socket_half.modifiers) == 1
     finally:
@@ -861,11 +869,11 @@ def check_export_stl_preserves_physical_size_with_custom_scene_units() -> None:
 def check_air_vents_cut_both_mold_halves() -> None:
     """The installed extension produces one live shared cutter for two
     halves."""
-    from bl_ext.user_default.silicone_casting.core import (
+    from bl_ext.user_default.silicone_casting.core.air_vents import (
         add_air_vent_cutters,
         create_air_vent_mesh,
-        world_volume,
     )
+    from bl_ext.user_default.silicone_casting.core.volume import world_volume
     from mathutils import Vector
 
     targets = []
@@ -902,7 +910,7 @@ CHECKS = (
     check_named_color_profiles_update_and_apply_independently,
     check_solidify_then_apply_gives_a_double_walled_cube,
     check_boolean_modifier_uses_the_requested_inputs,
-    check_registration_keys_preview_and_commit,
+    check_registration_keys_create_edit_and_delete,
     check_surface_cut_is_one_integrated_modifier,
     check_air_vents_cut_both_mold_halves,
     check_loose_parts_become_separate_objects,

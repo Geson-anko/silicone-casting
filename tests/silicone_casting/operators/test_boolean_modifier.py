@@ -12,8 +12,8 @@ import pytest
 from _helpers import make_cube_mesh
 
 import silicone_casting
-from silicone_casting.core import SURFACE_CUT_MODIFIER_NAME
-from silicone_casting.operators import (
+from silicone_casting.core.surface_cut import SURFACE_CUT_MODIFIER_NAME
+from silicone_casting.operators.boolean_modifier import (
     SILCAST_OT_add_boolean,
     SILCAST_OT_add_surface_cut,
 )

@@ -4,7 +4,7 @@ from math import cos, pi, sin
 
 import bpy
 import pytest
-from _helpers import make_cube_mesh, mesh_invariants
+from _helpers import MeshInvariants, make_cube_mesh
 from mathutils import Matrix, Vector
 
 from silicone_casting.core.air_vents import (
@@ -20,7 +20,7 @@ def test_straight_vent_has_requested_diameter_length_and_outward_caps():
         "Vent", [[Vector((0, 0, -2)), Vector((0, 0, 2))]], Vector((1, 0, 0)), 0.4
     )
     try:
-        shape = mesh_invariants(mesh)
+        shape = MeshInvariants.from_mesh(mesh)
         assert shape.is_watertight
         assert shape.loose_part_count == 1
         assert shape.volume == pytest.approx(pi * 0.2**2 * 4, rel=0.002)
@@ -43,7 +43,7 @@ def test_curved_vent_is_one_closed_pipe_on_a_rotated_plane(reverse):
         0.2,
     )
     try:
-        shape = mesh_invariants(mesh)
+        shape = MeshInvariants.from_mesh(mesh)
         assert shape.is_watertight
         assert shape.loose_part_count == 1
         # Quarter circle of radius 2 has length pi, swept by a radius 0.1 disc.
@@ -60,7 +60,7 @@ def test_duplicate_mouse_samples_do_not_create_degenerate_faces():
         0.2,
     )
     try:
-        assert mesh_invariants(mesh).is_watertight
+        assert MeshInvariants.from_mesh(mesh).is_watertight
         assert all(face.area > 0 for face in mesh.polygons)
     finally:
         bpy.data.meshes.remove(mesh)
@@ -124,7 +124,7 @@ def test_shared_vent_cuts_all_targets_with_world_space_diameter(make_object):
         evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
         mesh = evaluated.to_mesh()
         try:
-            shape = mesh_invariants(mesh)
+            shape = MeshInvariants.from_mesh(mesh)
             assert shape.is_watertight
             assert shape.loose_part_count == 1
             assert shape.volume == pytest.approx(8 - pi * 0.2**2 * 2, rel=0.001)
@@ -152,7 +152,7 @@ def test_crossing_vents_subtract_the_union_without_internal_walls(make_object):
     evaluated = target.evaluated_get(bpy.context.evaluated_depsgraph_get())
     mesh = evaluated.to_mesh()
     try:
-        shape = mesh_invariants(mesh)
+        shape = MeshInvariants.from_mesh(mesh)
         assert shape.is_watertight
         assert shape.loose_part_count == 1
         # Two perpendicular cylinders overlap in a Steinmetz solid, 16 r^3 / 3.

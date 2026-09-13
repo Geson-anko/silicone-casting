@@ -1,14 +1,13 @@
-"""Operators that edit and select the silicone mixture table."""
+"""Blender entry points for the scene's mixture table operations."""
 
-from typing import Literal, cast, override
+from typing import TYPE_CHECKING, override
 
 import bpy
 from bpy.props import EnumProperty, IntProperty
 
+from ..properties.mixture import MoveDirection, SelectionMode
+from ..properties.settings import scene_settings
 from ._operator import OperatorReturn
-
-type _MoveDirection = Literal["UP", "DOWN"]
-type _SelectionMode = Literal["REPLACE", "TOGGLE", "RANGE", "ADD_RANGE"]
 
 _SELECTION_MODES = (
     ("REPLACE", "Replace", "Select only this row"),
@@ -27,13 +26,7 @@ class SILCAST_OT_add_mixture_part(bpy.types.Operator):
 
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
-        part = context.scene.silicone_casting.mixture_parts.add()
-        part.enabled = True
-        part.selected = False
-        part.part_name = "Part"
-        part.volume_ml = 0.0
-        context.scene.silicone_casting.mixture_selection_anchor = -1
-        context.scene.silicone_casting.mixture_active_index = -1
+        scene_settings(context).mixture.add_part()
         return {"FINISHED"}
 
 
@@ -47,19 +40,11 @@ class SILCAST_OT_remove_mixture_parts(bpy.types.Operator):
     @classmethod
     @override
     def poll(cls, context: bpy.types.Context) -> bool:
-        return any(
-            part.selected for part in context.scene.silicone_casting.mixture_parts
-        )
+        return any(part.selected for part in scene_settings(context).mixture.parts)
 
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
-        props = context.scene.silicone_casting
-        parts = props.mixture_parts
-        for index in range(len(parts) - 1, -1, -1):
-            if parts[index].selected:
-                parts.remove(index)
-        props.mixture_selection_anchor = -1
-        props.mixture_active_index = -1
+        scene_settings(context).mixture.remove_selected_parts()
         return {"FINISHED"}
 
 
@@ -70,44 +55,27 @@ class SILCAST_OT_move_mixture_parts(bpy.types.Operator):
     bl_label = "Move Selected Mixture Parts"
     bl_options = {"REGISTER", "UNDO"}
 
-    direction: EnumProperty(  # pyright: ignore[reportInvalidTypeForm]
-        name="Direction",
-        items=(
-            ("UP", "Up", "Move selected rows up"),
-            ("DOWN", "Down", "Move selected rows down"),
-        ),
-        default="UP",
-        options={"HIDDEN", "SKIP_SAVE"},
-    )
+    if TYPE_CHECKING:
+        direction: MoveDirection
+    else:
+        direction: EnumProperty(
+            name="Direction",
+            items=(
+                ("UP", "Up", "Move selected rows up"),
+                ("DOWN", "Down", "Move selected rows down"),
+            ),
+            default="UP",
+            options={"HIDDEN", "SKIP_SAVE"},
+        )
 
     @classmethod
     @override
     def poll(cls, context: bpy.types.Context) -> bool:
-        return any(
-            part.selected for part in context.scene.silicone_casting.mixture_parts
-        )
+        return any(part.selected for part in scene_settings(context).mixture.parts)
 
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
-        props = context.scene.silicone_casting
-        parts = props.mixture_parts
-        direction = cast(
-            _MoveDirection,
-            self.direction,  # pyright: ignore[reportUnknownMemberType]
-        )
-        moved = False
-        if direction == "UP":
-            for index in range(1, len(parts)):
-                if parts[index].selected and not parts[index - 1].selected:
-                    parts.move(index, index - 1)
-                    moved = True
-        else:
-            for index in range(len(parts) - 2, -1, -1):
-                if parts[index].selected and not parts[index + 1].selected:
-                    parts.move(index, index + 1)
-                    moved = True
-        props.mixture_selection_anchor = -1
-        props.mixture_active_index = -1
+        moved = scene_settings(context).mixture.move_selected_parts(self.direction)
         return {"FINISHED"} if moved else {"CANCELLED"}
 
 
@@ -118,67 +86,38 @@ class SILCAST_OT_select_mixture_part(bpy.types.Operator):
     bl_label = "Select Mixture Part"
     bl_options = {"INTERNAL"}
 
-    index: IntProperty(  # pyright: ignore[reportInvalidTypeForm]
-        name="Index",
-        default=0,
-        min=0,
-        options={"HIDDEN", "SKIP_SAVE"},
-    )
-
-    mode: EnumProperty(  # pyright: ignore[reportInvalidTypeForm]
-        name="Mode",
-        items=_SELECTION_MODES,
-        default="REPLACE",
-        options={"HIDDEN", "SKIP_SAVE"},
-    )
+    if TYPE_CHECKING:
+        index: int
+        mode: SelectionMode
+    else:
+        index: IntProperty(
+            name="Index",
+            default=0,
+            min=0,
+            options={"HIDDEN", "SKIP_SAVE"},
+        )
+        mode: EnumProperty(
+            name="Mode",
+            items=_SELECTION_MODES,
+            default="REPLACE",
+            options={"HIDDEN", "SKIP_SAVE"},
+        )
 
     @override
     def invoke(
         self, context: bpy.types.Context, event: bpy.types.Event
     ) -> OperatorReturn:
         if event.shift and event.ctrl:
-            self.mode = "ADD_RANGE"  # pyright: ignore[reportUnknownMemberType]
+            self.mode = "ADD_RANGE"
         elif event.shift:
-            self.mode = "RANGE"  # pyright: ignore[reportUnknownMemberType]
+            self.mode = "RANGE"
         elif event.ctrl:
-            self.mode = "TOGGLE"  # pyright: ignore[reportUnknownMemberType]
+            self.mode = "TOGGLE"
         else:
-            self.mode = "REPLACE"  # pyright: ignore[reportUnknownMemberType]
+            self.mode = "REPLACE"
         return self.execute(context)
 
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
-        props = context.scene.silicone_casting
-        parts = props.mixture_parts
-        index = cast(int, self.index)  # pyright: ignore[reportUnknownMemberType]
-        if index >= len(parts):
-            return {"CANCELLED"}
-
-        mode = cast(
-            _SelectionMode,
-            self.mode,  # pyright: ignore[reportUnknownMemberType]
-        )
-        anchor = props.mixture_selection_anchor
-        previous_selection = [part.selected for part in parts]
-        props.mixture_active_index = index
-        for part, was_selected in zip(parts, previous_selection, strict=True):
-            part.selected = was_selected
-
-        if mode in {"RANGE", "ADD_RANGE"} and 0 <= anchor < len(parts):
-            if mode == "RANGE":
-                for part in parts:
-                    part.selected = False
-            first, last = sorted((anchor, index))
-            for selected_index in range(first, last + 1):
-                parts[selected_index].selected = True
-            props.mixture_selection_anchor = anchor
-            return {"FINISHED"}
-
-        if mode != "TOGGLE":
-            for part in parts:
-                part.selected = False
-            parts[index].selected = True
-        else:
-            parts[index].selected = not parts[index].selected
-        props.mixture_selection_anchor = index
-        return {"FINISHED"}
+        selected = scene_settings(context).mixture.select_part(self.index, self.mode)
+        return {"FINISHED"} if selected else {"CANCELLED"}

@@ -151,16 +151,6 @@ def make_cube_mesh(size: float, name: str) -> bpy.types.Mesh:
     return mesh
 
 
-def mesh_data(mesh: bpy.types.Mesh) -> MeshData:
-    """Extract positions and face indices from *mesh*."""
-    return MeshData.from_mesh(mesh)
-
-
-def mesh_invariants(mesh: bpy.types.Mesh) -> MeshInvariants:
-    """Compute the invariants of *mesh* via bmesh."""
-    return MeshInvariants.from_mesh(mesh)
-
-
 def _count_loose_parts(bm: bmesh.types.BMesh) -> int:
     """Count connected components of *bm* by flood-filling across edges."""
     seen: set[int] = set()
@@ -181,16 +171,6 @@ def _count_loose_parts(bm: bmesh.types.BMesh) -> int:
                 if other is not None and other.index not in seen:
                     stack.append(other)
     return parts
-
-
-def write_obj(path: Path, data: MeshData) -> None:
-    """Write *data* to *path* as Wavefront OBJ with 1-based face indices."""
-    data.write_obj(path)
-
-
-def read_obj(path: Path) -> MeshData:
-    """Read a Wavefront OBJ written by :func:`write_obj`."""
-    return MeshData.from_obj(path)
 
 
 def _rounded(vertex: Vertex) -> Vertex:

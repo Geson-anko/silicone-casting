@@ -52,16 +52,20 @@ class SimulatedSiliconeAppearance:
         using the same concentration relative to its calibration. The
         iterable is consumed once.
         """
-        colorant_values = tuple(colorants)
-        concentrations = _calibrated_concentrations(base_volume_ml, colorant_values)
-        color = _mix_calibrated_color(base_color, concentrations)
-        opacity_factor = _clamp_unit(
-            fsum(
-                concentration
-                for colorant, concentration in concentrations
-                if colorant.drops > 0.0
+        if base_volume_ml <= 0.0:
+            raise ValueError("Base volume must be greater than zero")
+        weighted_colors = [
+            (colorant.calibration_color, colorant.concentration_factor(base_volume_ml))
+            for colorant in colorants
+            if colorant.enabled and colorant.drops > 0.0
+        ]
+        total_concentration = fsum(weight for _color, weight in weighted_colors)
+        color = base_color
+        if weighted_colors:
+            color = mix_spectral_reflectance(
+                [(base_color, max(1.0 - total_concentration, 0.0)), *weighted_colors]
             )
-        )
+        opacity_factor = _clamp_unit(total_concentration)
         transparency = _clamp_unit(base_transparency) * (1.0 - opacity_factor)
         return cls(color=color, transparency=transparency)
 
@@ -69,77 +73,6 @@ class SimulatedSiliconeAppearance:
 def _clamp_unit(value: float) -> float:
     """Clamp one scalar to the inclusive zero-to-one range."""
     return min(max(value, 0.0), 1.0)
-
-
-def _calibrated_concentrations(
-    base_volume_ml: float,
-    colorants: Iterable[CalibratedColorant],
-) -> list[tuple[CalibratedColorant, float]]:
-    """Validate and collect active doses relative to their calibration."""
-    if base_volume_ml <= 0.0:
-        raise ValueError("Base volume must be greater than zero")
-    concentrations: list[tuple[CalibratedColorant, float]] = []
-    for colorant in colorants:
-        if not colorant.enabled or colorant.drops <= 0.0:
-            continue
-        concentrations.append((colorant, colorant.concentration_factor(base_volume_ml)))
-    return concentrations
-
-
-def _mix_calibrated_color(
-    base_color: RGB,
-    concentrations: list[tuple[CalibratedColorant, float]],
-) -> RGB:
-    """Combine the base and calibrated colors at their relative
-    concentrations."""
-    if not concentrations:
-        return base_color
-    total_concentration = fsum(
-        concentration for _colorant, concentration in concentrations
-    )
-    weighted_colors = [
-        (base_color, max(1.0 - total_concentration, 0.0)),
-        *(
-            (colorant.calibration_color, concentration)
-            for colorant, concentration in concentrations
-        ),
-    ]
-    return mix_spectral_reflectance(weighted_colors)
-
-
-def simulate_silicone_color(
-    base_color: RGB,
-    base_volume_ml: float,
-    colorants: Iterable[CalibratedColorant],
-) -> RGB:
-    """Return a scene-linear RGB estimate from representative spectra.
-
-    Each calibration color is treated as the result at its dye-specific
-    calibration concentration. Colors are upsampled to representative
-    reflectance spectra, then mixed by a concentration-weighted
-    geometric mean. This gives white, black, and chromatic colorants the
-    same mixing rule and keeps the result independent of row order.
-    """
-    concentrations = _calibrated_concentrations(base_volume_ml, colorants)
-    return _mix_calibrated_color(base_color, concentrations)
-
-
-def simulate_silicone_appearance(
-    base_color: RGB,
-    base_volume_ml: float,
-    base_transparency: float,
-    colorants: Iterable[CalibratedColorant],
-) -> SimulatedSiliconeAppearance:
-    """Return color and transparency for a calibrated mixture.
-
-    All colorants share the spectral mixing rule and reduce transmission
-    at their calibration concentration. The opacity rule remains an
-    empirical calibration separate from the representative color
-    calculation.
-    """
-    return SimulatedSiliconeAppearance.from_mixture(
-        base_color, base_volume_ml, base_transparency, colorants
-    )
 
 
 def _linear_channel_to_srgb(channel: float) -> float:

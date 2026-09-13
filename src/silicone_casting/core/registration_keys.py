@@ -109,21 +109,13 @@ class KeyDimensions:
         """Allocate the closed geometry as a Blender mesh."""
         vertices, faces = self.geometry(socket=socket)
         mesh = bpy.data.meshes.new(name)
-        mesh.from_pydata(vertices, [], faces)
-        mesh.update()
+        try:
+            mesh.from_pydata(vertices, [], faces)
+            mesh.update()
+        except (ValueError, RuntimeError):
+            bpy.data.meshes.remove(mesh)
+            raise
         return mesh
-
-
-def key_geometry(dimensions: KeyDimensions, *, socket: bool = False) -> KeyGeometry:
-    """Build a closed key; the socket adds lateral and tip clearance."""
-    return dimensions.geometry(socket=socket)
-
-
-def create_key_mesh(
-    name: str, dimensions: KeyDimensions, *, socket: bool = False
-) -> bpy.types.Mesh:
-    """Allocate the closed geometry as a Blender mesh."""
-    return dimensions.create_mesh(name, socket=socket)
 
 
 def placement_matrix(position: Vector, normal: Vector, angle: float = 0) -> Matrix:

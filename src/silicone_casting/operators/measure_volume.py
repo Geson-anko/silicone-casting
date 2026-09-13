@@ -12,7 +12,9 @@ from typing import Final, override
 
 import bpy
 
-from ..core import VolumeSummary, cubic_units_to_ml, format_ml
+from ..core.units import cubic_units_to_ml, format_ml
+from ..core.volume import VolumeSummary
+from ..properties.settings import scene_settings
 from ._operator import OperatorReturn, selected_meshes
 
 #: How many object names the error message may list before it falls back to a
@@ -49,7 +51,7 @@ class SILCAST_OT_measure_volume(bpy.types.Operator):
             context.selected_objects or (),
             context.evaluated_depsgraph_get(),
         )
-        props = context.scene.silicone_casting
+        props = scene_settings(context)
 
         names = summary.non_watertight_names
         if names:

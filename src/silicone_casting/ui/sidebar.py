@@ -2,28 +2,29 @@
 
 from __future__ import annotations
 
-from typing import Final, Protocol, cast, override
+from typing import Final, cast, override
 
 import bpy
 
-from ..core import format_ml
-from ..operators import (
+from ..core.units import format_ml
+from ..operators.boolean_modifier import (
     SILCAST_OT_add_boolean,
     SILCAST_OT_add_surface_cut,
-    SILCAST_OT_apply_solidify,
-    SILCAST_OT_copy_value,
-    SILCAST_OT_draw_air_vents,
+)
+from ..operators.copy_value import SILCAST_OT_copy_value
+from ..operators.draw_air_vents import SILCAST_OT_draw_air_vents
+from ..operators.draw_surface_cut import (
     SILCAST_OT_draw_surface_cut,
     SILCAST_OT_edit_cutting_surface,
-    SILCAST_OT_export_stl,
-    SILCAST_OT_inherit_shape,
-    SILCAST_OT_measure_volume,
-    SILCAST_OT_separate_loose_parts,
-    SILCAST_OT_solidify,
 )
-from ._color_panel import SILCAST_PT_color_simulator
-from ._mixture_panel import SILCAST_PT_mixture_calculator
-from ._scene_properties import SiliconeCastingProperties
+from ..operators.export_stl import SILCAST_OT_export_stl
+from ..operators.inherit_shape import SILCAST_OT_inherit_shape
+from ..operators.measure_volume import SILCAST_OT_measure_volume
+from ..operators.separate_loose_parts import SILCAST_OT_separate_loose_parts
+from ..operators.solidify import SILCAST_OT_apply_solidify, SILCAST_OT_solidify
+from ..properties.settings import SiliconeCastingProperties, scene_settings
+from .color import SILCAST_PT_color_simulator
+from .mixture import SILCAST_PT_mixture_calculator
 
 #: Left column of the volume row. The unit lives in the label so that the
 #: value stays a bare number, ready to be pasted into a spreadsheet.
@@ -32,14 +33,6 @@ _VOLUME_LABEL: Final = "Volume (mL)"
 #: Stands in for the value before the first measurement. Keeping it to two
 #: characters keeps the row's shape identical before and after measuring.
 _NOT_MEASURED: Final = "--"
-
-
-class _RegistrationKeySettings(Protocol):
-    """RNA fields that determine which key controls are visible."""
-
-    key_shape: str
-    key_align_normal: bool
-    key_active: bpy.types.Object | None
 
 
 class SILCAST_PT_main(bpy.types.Panel):
@@ -79,7 +72,7 @@ class SILCAST_PT_measurement(bpy.types.Panel):
         # `Panel.layout` is typed optional because it is unset outside a draw
         # call; Blender always populates it before invoking draw().
         assert layout is not None
-        props = context.scene.silicone_casting
+        props = scene_settings(context)
         layout.operator(SILCAST_OT_measure_volume.bl_idname, icon="DRIVER_DISTANCE")
 
         row = layout.split(factor=0.5)
@@ -144,7 +137,7 @@ class SILCAST_PT_processing(bpy.types.Panel):
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
         assert layout is not None
-        props = context.scene.silicone_casting
+        props = scene_settings(context)
         self._draw_solidify(props)
         self._draw_boolean(props)
         self._draw_surface_cut(props)
@@ -153,7 +146,7 @@ class SILCAST_PT_processing(bpy.types.Panel):
         layout.separator()
         layout.operator(SILCAST_OT_separate_loose_parts.bl_idname, icon="MESH_DATA")
         layout.separator()
-        self._draw_registration_keys(cast(_RegistrationKeySettings, props))
+        self._draw_registration_keys(props)
         layout.operator(SILCAST_OT_export_stl.bl_idname, icon="EXPORT")
 
     def _section(self, identifier: str, title: str) -> bpy.types.UILayout | None:
@@ -223,7 +216,7 @@ class SILCAST_PT_processing(bpy.types.Panel):
 
     def _draw_inherit_shape(self, context: bpy.types.Context) -> None:
         """Draw object and collection shape inheritance."""
-        props = context.scene.silicone_casting
+        props = scene_settings(context)
         inherit = self._section("inherit_shape", "Inherit Shape")
         if inherit is not None:
             object_row = inherit.row()
@@ -241,7 +234,7 @@ class SILCAST_PT_processing(bpy.types.Panel):
                 icon="OUTLINER_COLLECTION",
             ).use_collection = True
 
-    def _draw_registration_keys(self, props: _RegistrationKeySettings) -> None:
+    def _draw_registration_keys(self, props: SiliconeCastingProperties) -> None:
         """Draw pin dimensions, placement, and selected-key editing."""
         keys = self._section("registration_keys", "Registration Keys")
         if keys is not None:

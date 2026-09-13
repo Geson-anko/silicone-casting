@@ -1,9 +1,10 @@
 """Branch an object or collection's evaluated shape through Boolean."""
 
-from typing import Final, cast, override
+from typing import TYPE_CHECKING, Final, override
 
 import bpy
 
+from ..properties.settings import scene_settings
 from ._operator import OperatorReturn
 
 _OBJECT_SUFFIX: Final = ".inherit"
@@ -27,17 +28,20 @@ class SILCAST_OT_inherit_shape(bpy.types.Operator):
     )
     bl_options = {"REGISTER", "UNDO"}
 
-    use_collection: bpy.props.BoolProperty(  # pyright: ignore[reportInvalidTypeForm]
-        name="Use Collection",
-        description="Inherit all meshes in the selected collection",
-        default=False,
-        options={"HIDDEN", "SKIP_SAVE"},
-    )
+    if TYPE_CHECKING:
+        use_collection: bool
+    else:
+        use_collection: bpy.props.BoolProperty(
+            name="Use Collection",
+            description="Inherit all meshes in the selected collection",
+            default=False,
+            options={"HIDDEN", "SKIP_SAVE"},
+        )
 
     @classmethod
     @override
     def poll(cls, context: bpy.types.Context) -> bool:
-        props = context.scene.silicone_casting
+        props = scene_settings(context)
         return context.mode == "OBJECT" and (
             _active_mesh(context) is not None or props.inherit_collection is not None
         )
@@ -47,15 +51,11 @@ class SILCAST_OT_inherit_shape(bpy.types.Operator):
     ) -> bpy.types.Object | bpy.types.Collection | None:
         """Resolve the chosen operand and report invalid collection
         contents."""
-        props = context.scene.silicone_casting
-        use_collection = cast(
-            bool,
-            self.use_collection,  # pyright: ignore[reportUnknownMemberType]
-        )
+        props = scene_settings(context)
         source: bpy.types.Object | bpy.types.Collection | None = (
-            props.inherit_collection if use_collection else _active_mesh(context)
+            props.inherit_collection if self.use_collection else _active_mesh(context)
         )
-        if use_collection:
+        if self.use_collection:
             if not isinstance(source, bpy.types.Collection) or not any(
                 obj.type == "MESH" for obj in source.all_objects
             ):
