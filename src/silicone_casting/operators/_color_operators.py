@@ -182,6 +182,6 @@ class SILCAST_OT_apply_color_material(bpy.types.Operator):
             if len(mesh.materials) == 0:
                 mesh.materials.append(material)
             else:
-                mesh.materials[obj.active_material_index or 0] = material
+                obj.active_material = material
         self.report({"INFO"}, f"Applied to {len(objects)} object(s)")
         return {"FINISHED"}
