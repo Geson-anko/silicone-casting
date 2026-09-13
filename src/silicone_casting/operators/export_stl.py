@@ -67,6 +67,16 @@ class SILCAST_OT_export_stl(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
     @override
+    def check(self, context: bpy.types.Context) -> bool:
+        # The file browser must check the path that execute will actually write.
+        filepath = cast(str, self.filepath)  # pyright: ignore[reportUnknownMemberType]
+        normalized = bpy.path.ensure_ext(filepath, _STL_EXTENSION)
+        if os.path.basename(filepath) and normalized != filepath:
+            self.filepath = normalized
+            return True
+        return False
+
+    @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
         # The user can change the selection or mode while the file browser is
         # open, so validate the context again when they confirm the path.
