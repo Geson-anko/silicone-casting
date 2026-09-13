@@ -60,6 +60,19 @@ class TestRegistration:
         operators = dir(bpy.ops.silicone_casting)
         assert "inherit_shape" in operators
 
+    def test_the_native_key_tool_and_sidebar_actions_become_callable(
+        self, registered: None
+    ) -> None:
+        operators = dir(bpy.ops.silicone_casting)
+        for name in (
+            "start_key_placement",
+            "stop_key_placement",
+            "place_key",
+            "edit_registration_key",
+            "delete_registration_key",
+        ):
+            assert name in operators
+
     def test_the_mixture_table_operators_become_callable(
         self, registered: None
     ) -> None:
@@ -201,16 +214,16 @@ class TestMixtureSettings:
     def test_scene_settings_carry_the_mixture_properties(
         self, registered: None
     ) -> None:
-        properties = bpy.context.scene.silicone_casting.bl_rna.properties
+        properties = bpy.context.scene.silicone_casting.mixture.bl_rna.properties
         for name in (
-            "mixture_use_shared_density",
-            "mixture_density_a_g_per_ml",
-            "mixture_density_b_g_per_ml",
-            "mixture_ratio_a",
-            "mixture_ratio_b",
-            "mixture_parts",
-            "mixture_selection_anchor",
-            "mixture_active_index",
+            "use_shared_density",
+            "density_a_g_per_ml",
+            "density_b_g_per_ml",
+            "ratio_a",
+            "ratio_b",
+            "parts",
+            "selection_anchor",
+            "active_index",
         ):
             assert name in properties
 
@@ -219,38 +232,38 @@ class TestMixtureSettings:
         self, registered: None
     ) -> None:
         settings = bpy.context.scene.silicone_casting
-        settings.mixture_parts.clear()
-        part = settings.mixture_parts.add()
+        settings.mixture.parts.clear()
+        part = settings.mixture.parts.add()
 
         properties = part.bl_rna.properties
         for name in ("enabled", "selected", "part_name", "volume_ml"):
             assert name in properties
 
-        settings.mixture_parts.clear()
+        settings.mixture.parts.clear()
 
     def test_mixture_settings_have_the_documented_defaults(
         self, registered: None
     ) -> None:
-        properties = bpy.context.scene.silicone_casting.bl_rna.properties
-        assert properties["mixture_use_shared_density"].default is True
-        assert properties["mixture_density_a_g_per_ml"].default == pytest.approx(1.1)
-        assert properties["mixture_density_b_g_per_ml"].default == pytest.approx(1.1)
-        assert properties["mixture_ratio_a"].default == pytest.approx(1.0)
-        assert properties["mixture_ratio_b"].default == pytest.approx(1.0)
+        properties = bpy.context.scene.silicone_casting.mixture.bl_rna.properties
+        assert properties["use_shared_density"].default is True
+        assert properties["density_a_g_per_ml"].default == pytest.approx(1.1)
+        assert properties["density_b_g_per_ml"].default == pytest.approx(1.1)
+        assert properties["ratio_a"].default == pytest.approx(1.0)
+        assert properties["ratio_b"].default == pytest.approx(1.0)
 
     def test_density_and_ratio_are_clamped_to_positive_values(
         self, registered: None
     ) -> None:
         settings = bpy.context.scene.silicone_casting
-        settings.mixture_density_a_g_per_ml = 0.0
-        settings.mixture_density_b_g_per_ml = 0.0
-        settings.mixture_ratio_a = 0.0
-        settings.mixture_ratio_b = 0.0
+        settings.mixture.density_a_g_per_ml = 0.0
+        settings.mixture.density_b_g_per_ml = 0.0
+        settings.mixture.ratio_a = 0.0
+        settings.mixture.ratio_b = 0.0
 
-        assert settings.mixture_density_a_g_per_ml > 0.0
-        assert settings.mixture_density_b_g_per_ml > 0.0
-        assert settings.mixture_ratio_a > 0.0
-        assert settings.mixture_ratio_b > 0.0
+        assert settings.mixture.density_a_g_per_ml > 0.0
+        assert settings.mixture.density_b_g_per_ml > 0.0
+        assert settings.mixture.ratio_a > 0.0
+        assert settings.mixture.ratio_b > 0.0
 
     @pytest.mark.api_contract
     def test_saved_row_inputs_and_transient_selection_state_keep_their_storage_roles(
@@ -259,18 +272,18 @@ class TestMixtureSettings:
         # Contract pin, not a behaviour test: table inputs belong in .blend
         # files, while UI-list navigation state must reset after file load.
         settings = bpy.context.scene.silicone_casting
-        settings.mixture_parts.clear()
-        part = settings.mixture_parts.add()
+        settings.mixture.parts.clear()
+        part = settings.mixture.parts.add()
 
         for name in ("enabled", "selected", "part_name", "volume_ml"):
             assert not part.bl_rna.properties[name].is_skip_save
 
-        properties = settings.bl_rna.properties
-        assert not properties["mixture_parts"].is_skip_save
-        assert properties["mixture_selection_anchor"].is_skip_save
-        assert properties["mixture_active_index"].is_skip_save
+        properties = settings.mixture.bl_rna.properties
+        assert not properties["parts"].is_skip_save
+        assert properties["selection_anchor"].is_skip_save
+        assert properties["active_index"].is_skip_save
 
-        settings.mixture_parts.clear()
+        settings.mixture.parts.clear()
 
 
 class TestColorProfileSettings:

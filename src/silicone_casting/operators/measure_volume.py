@@ -12,7 +12,9 @@ from typing import Final, override
 
 import bpy
 
-from ..core import cubic_units_to_ml, format_ml, total_volume
+from ..core.units import cubic_units_to_ml, format_ml
+from ..core.volume import VolumeSummary
+from ..properties.settings import scene_settings
 from ._operator import OperatorReturn, selected_meshes
 
 #: How many object names the error message may list before it falls back to a
@@ -43,13 +45,13 @@ class SILCAST_OT_measure_volume(bpy.types.Operator):
 
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
-        # `total_volume` picks the mesh objects out of the selection itself,
+        # `from_objects` picks the mesh objects out of the selection itself,
         # so the selection goes in as-is. See poll() for the `or ()`.
-        summary = total_volume(
+        summary = VolumeSummary.from_objects(
             context.selected_objects or (),
             context.evaluated_depsgraph_get(),
         )
-        props = context.scene.silicone_casting
+        props = scene_settings(context)
 
         names = summary.non_watertight_names
         if names:

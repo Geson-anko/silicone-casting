@@ -9,15 +9,15 @@ from collections.abc import Callable, Iterator
 
 import bpy
 import pytest
-from _helpers import make_cube_mesh, mesh_invariants
+from _helpers import MeshInvariants, make_cube_mesh
 
 import silicone_casting
-from silicone_casting.operators import SILCAST_OT_inherit_shape
+from silicone_casting.operators.inherit_shape import SILCAST_OT_inherit_shape
 
 CUBE_SIZE = 2.0
 SOLIDIFY_THICKNESS = 0.2
 
-AddObject = Callable[..., bpy.types.Object]
+type AddObject = Callable[..., bpy.types.Object]
 
 
 def _leave_edit_mode() -> None:
@@ -212,7 +212,7 @@ def test_collection_union_includes_nested_meshes_and_updates_live(
     assert modifier.collection == source_collection
     assert modifier.operation == "UNION"
     assert modifier.solver == "EXACT"
-    shape = mesh_invariants(_evaluated_mesh(inherited))
+    shape = MeshInvariants.from_mesh(_evaluated_mesh(inherited))
     # Two size-2 cubes overlap by 1 x 2 x 2: 8 + 8 - 4 = 12.
     assert shape.volume == pytest.approx(12.0)
     assert shape.bbox_min == pytest.approx((2.0, -1.0, -1.0))
@@ -221,13 +221,13 @@ def test_collection_union_includes_nested_meshes_and_updates_live(
     assert shape.loose_part_count == 1
 
     second.location.x = 6.0
-    shape = mesh_invariants(_evaluated_mesh(inherited))
+    shape = MeshInvariants.from_mesh(_evaluated_mesh(inherited))
     assert shape.volume == pytest.approx(16.0)
     assert shape.loose_part_count == 2
     third = add_object("Third")
     third.location = (9.0, 0.0, 0.0)
     source_collection.objects.link(third)
-    shape = mesh_invariants(_evaluated_mesh(inherited))
+    shape = MeshInvariants.from_mesh(_evaluated_mesh(inherited))
     assert shape.volume == pytest.approx(24.0)
     assert len(first.data.vertices) == 8
     assert len(second.data.vertices) == 8

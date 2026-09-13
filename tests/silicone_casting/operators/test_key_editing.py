@@ -6,15 +6,11 @@ from math import atan, pi, sin, sqrt
 
 import bpy
 import pytest
-from _helpers import make_cube_mesh, mesh_data, mesh_invariants
+from _helpers import MeshData, MeshInvariants, make_cube_mesh
 from mathutils import Matrix, Vector
 
 import silicone_casting
-from silicone_casting.operators.key_editing import (
-    is_registration_key,
-    key_socket,
-    load_key_settings,
-)
+from silicone_casting.operators.key_models import KeyPair, KeySettings
 
 
 @pytest.fixture(scope="module")
@@ -83,28 +79,30 @@ def _evaluated_mesh(obj: bpy.types.Object) -> bpy.types.Mesh:
 
 
 def _add(location=(0, 0, 0), normal=(0, 0, 1)) -> bpy.types.Object:
-    assert bpy.ops.silicone_casting.add_registration_key(
-        location=location, normal=normal
-    ) == {"FINISHED"}
-    return bpy.context.scene.silicone_casting.key_active
+    return KeyPair.create(
+        bpy.context,
+        KeySettings.from_context(bpy.context),
+        Vector(location),
+        Vector(normal),
+    ).pin
 
 
 def test_add_creates_a_hidden_editable_pair_and_preserves_source_meshes(halves) -> None:
     male, female = halves
-    before = (mesh_data(male.data), mesh_data(female.data))
+    before = (MeshData.from_mesh(male.data), MeshData.from_mesh(female.data))
 
     pin = _add()
 
-    socket = key_socket(pin)
-    assert is_registration_key(pin)
+    socket = KeyPair.from_pin(pin).socket
+    assert KeyPair.from_pin(pin) is not None
     assert socket is not None
     assert pin.parent == male and socket.parent == female
     assert pin.hide_get() and socket.hide_get()
     assert male.modifiers[0].object == pin
     assert female.modifiers[0].object == socket
-    assert (mesh_data(male.data), mesh_data(female.data)) == before
-    male_result = mesh_invariants(_evaluated_mesh(male))
-    female_result = mesh_invariants(_evaluated_mesh(female))
+    assert (MeshData.from_mesh(male.data), MeshData.from_mesh(female.data)) == before
+    male_result = MeshInvariants.from_mesh(_evaluated_mesh(male))
+    female_result = MeshInvariants.from_mesh(_evaluated_mesh(female))
     assert male_result.is_watertight and female_result.is_watertight
     assert male_result.loose_part_count == female_result.loose_part_count == 1
     assert male_result.volume == pytest.approx(
@@ -119,20 +117,16 @@ def test_move_preserves_saved_dimensions_instead_of_applying_unrelated_ui_edits(
     halves,
 ) -> None:
     pin = _add()
-    socket = key_socket(pin)
-    before = (mesh_data(pin.data), mesh_data(socket.data))
+    socket = KeyPair.from_pin(pin).socket
+    before = (MeshData.from_mesh(pin.data), MeshData.from_mesh(socket.data))
     p = bpy.context.scene.silicone_casting
     p.key_width_mm = 8
     p.key_height_mm = 5
     p.key_clearance_mm = 0.8
     p.key_shape = "RECTANGLE"
 
-    result = bpy.ops.silicone_casting.move_registration_key(
-        key_name=pin.name, location=(4, 0, 0), normal=(0, 0, 1)
-    )
-
-    assert result == {"FINISHED"}
-    assert (mesh_data(pin.data), mesh_data(socket.data)) == before
+    KeyPair.from_pin(pin).move(bpy.context, Vector((4, 0, 0)), Vector((0, 0, 1)))
+    assert (MeshData.from_mesh(pin.data), MeshData.from_mesh(socket.data)) == before
     assert tuple(pin.matrix_world.translation) == pytest.approx((4, 0, 0), abs=1e-6)
     assert tuple(socket.matrix_world.translation) == pytest.approx((4, 0, 0), abs=1e-6)
     assert len(halves[0].modifiers) == len(halves[1].modifiers) == 1
@@ -152,10 +146,12 @@ def test_edit_updates_selected_pair_dimensions_at_the_same_contact(halves) -> No
     assert bpy.ops.silicone_casting.edit_registration_key() == {"FINISHED"}
 
     pin = p.key_active
-    socket = key_socket(pin)
+    socket = KeyPair.from_pin(pin).socket
     assert tuple(pin.matrix_world.translation) == pytest.approx((2, 3, 0), abs=1e-6)
-    assert mesh_invariants(pin.data).bbox_max == pytest.approx((3, 4, 4))
-    assert mesh_invariants(socket.data).bbox_max == pytest.approx((3.3, 4.3, 4.5))
+    assert MeshInvariants.from_mesh(pin.data).bbox_max == pytest.approx((3, 4, 4))
+    assert MeshInvariants.from_mesh(socket.data).bbox_max == pytest.approx(
+        (3.3, 4.3, 4.5)
+    )
     assert (len(bpy.data.objects), len(bpy.data.meshes)) == before_count
 
 
@@ -164,7 +160,7 @@ def test_editing_a_disabled_key_preserves_each_modifier_visibility(
     halves, visibility
 ) -> None:
     pin = _add()
-    socket = key_socket(pin)
+    socket = KeyPair.from_pin(pin).socket
     male_modifier = halves[0].modifiers[0]
     female_modifier = halves[1].modifiers[0]
     male_modifier.show_viewport, female_modifier.show_viewport = visibility
@@ -181,12 +177,18 @@ def test_editing_and_deleting_one_pair_does_not_modify_a_second_pair(halves) -> 
     first = _add(location=(-4, 0, 0))
     bpy.context.view_layer.objects.active = halves[0]
     second = _add(location=(4, 0, 0))
-    second_socket = key_socket(second)
-    second_before = (mesh_data(second.data), mesh_data(second_socket.data))
+    second_socket = KeyPair.from_pin(second).socket
+    second_before = (
+        MeshData.from_mesh(second.data),
+        MeshData.from_mesh(second_socket.data),
+    )
     bpy.context.scene.silicone_casting.key_width_mm = 5
 
     bpy.ops.silicone_casting.edit_registration_key(key_name=first.name)
-    assert (mesh_data(second.data), mesh_data(second_socket.data)) == second_before
+    assert (
+        MeshData.from_mesh(second.data),
+        MeshData.from_mesh(second_socket.data),
+    ) == second_before
     assert bpy.ops.silicone_casting.delete_registration_key(key_name=first.name) == {
         "FINISHED"
     }
@@ -194,7 +196,10 @@ def test_editing_and_deleting_one_pair_does_not_modify_a_second_pair(halves) -> 
     assert len(halves[0].modifiers) == len(halves[1].modifiers) == 1
     assert halves[0].modifiers[0].object == second
     assert halves[1].modifiers[0].object == second_socket
-    assert (mesh_data(second.data), mesh_data(second_socket.data)) == second_before
+    assert (
+        MeshData.from_mesh(second.data),
+        MeshData.from_mesh(second_socket.data),
+    ) == second_before
 
 
 def test_delete_removes_pair_data_and_restores_original_mold_geometry(halves) -> None:
@@ -210,7 +215,7 @@ def test_delete_removes_pair_data_and_restores_original_mold_geometry(halves) ->
 
 def test_renamed_objects_keep_their_pair_and_edit_after_parent_motion(halves) -> None:
     pin = _add(location=(2, 0, 0))
-    socket = key_socket(pin)
+    socket = KeyPair.from_pin(pin).socket
     pin.name = "Renamed pin"
     socket.name = "Renamed socket"
     halves[0].name = "Renamed male"
@@ -221,7 +226,7 @@ def test_renamed_objects_keep_their_pair_and_edit_after_parent_motion(halves) ->
     p = bpy.context.scene.silicone_casting
     p.key_width_mm = 5
 
-    assert key_socket(pin) == socket
+    assert KeyPair.from_pin(pin).socket == socket
     assert bpy.ops.silicone_casting.edit_registration_key(key_name=pin.name) == {
         "FINISHED"
     }
@@ -241,7 +246,7 @@ def test_resizing_a_rectangular_key_preserves_its_orientation_on_rotated_halves(
     props.key_shape = "RECTANGLE"
     props.key_angle = 0.2
     pin = _add(location=(2, 0, 0))
-    socket = key_socket(pin)
+    socket = KeyPair.from_pin(pin).socket
     transform = (
         Matrix.Translation((30, -5, 8))
         @ Matrix.Rotation(tilt, 4, "Y")
@@ -261,7 +266,7 @@ def test_resizing_a_rectangular_key_preserves_its_orientation_on_rotated_halves(
     for operand in (pin, socket):
         for actual_row, expected_row in zip(operand.matrix_world, expected):
             assert tuple(actual_row) == pytest.approx(tuple(expected_row), abs=1e-5)
-    bounds = mesh_invariants(pin.data)
+    bounds = MeshInvariants.from_mesh(pin.data)
     assert bounds.bbox_min == pytest.approx((-2.5, -3, -1))
     assert bounds.bbox_max == pytest.approx((2.5, 3, 3))
 
@@ -294,17 +299,17 @@ def test_invalid_move_or_edit_restores_both_helpers_and_modifiers(
     halves, operation, visible
 ) -> None:
     pin = _add()
-    socket = key_socket(pin)
+    socket = KeyPair.from_pin(pin).socket
     halves[0].modifiers[0].show_viewport = visible
     halves[1].modifiers[0].show_viewport = visible
-    before = (mesh_data(pin.data), mesh_data(socket.data))
+    before = (MeshData.from_mesh(pin.data), MeshData.from_mesh(socket.data))
     matrices = (pin.matrix_world.copy(), socket.matrix_world.copy())
     counts = (len(bpy.data.objects), len(bpy.data.meshes))
 
     if operation == "move":
-        with pytest.raises(RuntimeError):
-            bpy.ops.silicone_casting.move_registration_key(
-                key_name=pin.name, location=(100, 0, 0), normal=(0, 0, 1)
+        with pytest.raises(ValueError):
+            KeyPair.from_pin(pin).move(
+                bpy.context, Vector((100, 0, 0)), Vector((0, 0, 1))
             )
     else:
         bpy.context.scene.silicone_casting.key_width_mm = 100
@@ -312,7 +317,7 @@ def test_invalid_move_or_edit_restores_both_helpers_and_modifiers(
         with pytest.raises(RuntimeError):
             bpy.ops.silicone_casting.edit_registration_key(key_name=pin.name)
 
-    assert (mesh_data(pin.data), mesh_data(socket.data)) == before
+    assert (MeshData.from_mesh(pin.data), MeshData.from_mesh(socket.data)) == before
     assert (pin.matrix_world, socket.matrix_world) == matrices
     assert (len(bpy.data.objects), len(bpy.data.meshes)) == counts
     assert len(halves[0].modifiers) == len(halves[1].modifiers) == 1
@@ -324,10 +329,8 @@ def test_invalid_move_or_edit_restores_both_helpers_and_modifiers(
 def test_invalid_add_leaves_no_helpers_or_modifiers(halves) -> None:
     before = (set(bpy.data.objects), set(bpy.data.meshes))
 
-    with pytest.raises(RuntimeError):
-        bpy.ops.silicone_casting.add_registration_key(
-            location=(100, 0, 0), normal=(0, 0, 1)
-        )
+    with pytest.raises(ValueError):
+        _add(location=(100, 0, 0))
 
     assert (set(bpy.data.objects), set(bpy.data.meshes)) == before
     assert not halves[0].modifiers and not halves[1].modifiers
@@ -362,7 +365,7 @@ def test_fixed_axis_ignores_cursor_rotation_and_saved_settings_can_be_reloaded(
     p.key_shape = "CYLINDER"
     p.key_angle = 0
     p.key_width_mm = 8
-    load_key_settings(bpy.context, pin)
+    KeyPair.from_pin(pin).select(bpy.context)
     assert p.key_axis == axis
     assert not p.key_align_normal
     assert p.key_shape == "RECTANGLE"
@@ -378,7 +381,7 @@ def test_taper_angle_builds_matching_slopes_and_survives_reselection(halves, sca
     p.key_width_mm = 8
     p.key_taper_angle = pi / 6
     pin = _add()
-    socket = key_socket(pin)
+    socket = KeyPair.from_pin(pin).socket
     assert socket is not None
     unit = 0.001 / scale
     # A 30-degree sidewall retreats height / sqrt(3) from the base radius.
@@ -386,11 +389,11 @@ def test_taper_angle_builds_matching_slopes_and_survives_reselection(halves, sca
     socket_top = max(v.co.x for v in socket.data.vertices if v.co.z > 0)
     assert pin_top == pytest.approx((4 - sqrt(3)) * unit)
     assert socket_top == pytest.approx((4.2 - 3.4 / sqrt(3)) * unit)
-    assert mesh_invariants(pin.data).is_watertight
-    assert mesh_invariants(socket.data).is_watertight
+    assert MeshInvariants.from_mesh(pin.data).is_watertight
+    assert MeshInvariants.from_mesh(socket.data).is_watertight
 
     p.key_taper = 0
-    load_key_settings(bpy.context, pin)
+    KeyPair.from_pin(pin).select(bpy.context)
     assert p.key_taper_angle == pytest.approx(pi / 6)
     p.key_taper_angle = 0
     assert bpy.ops.silicone_casting.edit_registration_key() == {"FINISHED"}

@@ -51,6 +51,46 @@ def smooth_vent_path(points: Sequence[Vector]) -> list[Vector]:
     return result
 
 
+def _clean_vent_path(
+    path: Sequence[Vector], normal: Vector, origin: Vector, epsilon: float
+) -> list[Vector]:
+    """Validate one planar path and discard consecutive duplicate points."""
+    points: list[Vector] = []
+    for point in path:
+        if not all(isfinite(v) for v in point):
+            raise ValueError("Vent points must be finite")
+        if abs((point - origin).dot(normal)) > max(epsilon, 1e-7):
+            raise ValueError("Vent paths must stay on the drawing plane")
+        if not points or (point - points[-1]).length > epsilon:
+            points.append(point)
+    if len(points) < 2:
+        raise ValueError("The vent path has no length")
+    return points
+
+
+def _vent_sides(
+    points: Sequence[Vector], normal: Vector, radius: float, epsilon: float
+) -> list[Vector]:
+    """Find mitred ring directions and reject overlapping neighboring rings."""
+    directions = [
+        (b - a).normalized() for a, b in zip(points, points[1:], strict=False)
+    ]
+    sides: list[Vector] = []
+    for i in range(len(points)):
+        before = directions[max(0, i - 1)]
+        after = directions[min(i, len(directions) - 1)]
+        tangent = (before + after).normalized()
+        alignment = tangent.dot(after)
+        if alignment < 1e-3:
+            raise ValueError("A vent cannot double back; smooth the bend")
+        sides.append(cast(Vector, tangent.cross(normal)) / alignment)
+    for i, direction in enumerate(directions):
+        overlap = radius * abs((sides[i + 1] - sides[i]).dot(direction))
+        if (points[i + 1] - points[i]).length <= overlap + epsilon:
+            raise ValueError("Bend too tight: smooth the line or reduce Diameter")
+    return sides
+
+
 def create_air_vent_mesh(
     name: str,
     paths: Sequence[Sequence[Vector]],
@@ -78,32 +118,8 @@ def create_air_vent_mesh(
     vertices: list[tuple[float, float, float]] = []
     faces: list[tuple[int, ...]] = []
     for path in paths:
-        points: list[Vector] = []
-        for point in path:
-            if not all(isfinite(v) for v in point):
-                raise ValueError("Vent points must be finite")
-            if abs((point - origin).dot(normal)) > max(epsilon, 1e-7):
-                raise ValueError("Vent paths must stay on the drawing plane")
-            if not points or (point - points[-1]).length > epsilon:
-                points.append(point)
-        if len(points) < 2:
-            raise ValueError("The vent path has no length")
-        directions = [
-            (b - a).normalized() for a, b in zip(points, points[1:], strict=False)
-        ]
-        sides: list[Vector] = []
-        for i in range(len(points)):
-            before = directions[max(0, i - 1)]
-            after = directions[min(i, len(directions) - 1)]
-            tangent = (before + after).normalized()
-            alignment = tangent.dot(after)
-            if alignment < 1e-3:
-                raise ValueError("A vent cannot double back; smooth the bend")
-            sides.append(cast(Vector, tangent.cross(normal)) / alignment)
-        for i, direction in enumerate(directions):
-            overlap = radius * abs((sides[i + 1] - sides[i]).dot(direction))
-            if (points[i + 1] - points[i]).length <= overlap + epsilon:
-                raise ValueError("Bend too tight: smooth the line or reduce Diameter")
+        points = _clean_vent_path(path, normal, origin, epsilon)
+        sides = _vent_sides(points, normal, radius, epsilon)
         base = len(vertices)
         for point, side in zip(points, sides, strict=True):
             for i in range(count):

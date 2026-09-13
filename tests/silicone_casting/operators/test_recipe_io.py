@@ -20,32 +20,32 @@ def settings() -> Iterator[bpy.types.PropertyGroup]:
 
 
 def test_mixture_round_trip_replaces_rows_and_preserves_inputs(settings, tmp_path):
-    settings.mixture_use_shared_density = False
-    settings.mixture_density_a_g_per_ml = 1.2
-    settings.mixture_density_b_g_per_ml = 0.9
-    settings.mixture_ratio_a = 10
-    settings.mixture_ratio_b = 1
-    first = settings.mixture_parts.add()
+    settings.mixture.use_shared_density = False
+    settings.mixture.density_a_g_per_ml = 1.2
+    settings.mixture.density_b_g_per_ml = 0.9
+    settings.mixture.ratio_a = 10
+    settings.mixture.ratio_b = 1
+    first = settings.mixture.parts.add()
     first.part_name = "右の型"
     first.volume_ml = 12.5
     first.selected = True
-    second = settings.mixture_parts.add()
+    second = settings.mixture.parts.add()
     second.part_name = "Unused"
     second.enabled = False
     second.volume_ml = 30
     path = str(tmp_path / "mixture.json")
     assert bpy.ops.silicone_casting.export_recipes(filepath=path) == {"FINISHED"}
-    settings.mixture_parts.clear()
-    settings.mixture_parts.add().part_name = "Replace me"
-    settings.mixture_ratio_a = 1
+    settings.mixture.parts.clear()
+    settings.mixture.parts.add().part_name = "Replace me"
+    settings.mixture.ratio_a = 1
     assert bpy.ops.silicone_casting.import_recipes(filepath=path) == {"FINISHED"}
-    assert [p.part_name for p in settings.mixture_parts] == ["右の型", "Unused"]
-    assert [p.volume_ml for p in settings.mixture_parts] == [12.5, 30]
-    assert settings.mixture_parts[0].selected
-    assert not settings.mixture_parts[1].enabled
-    assert settings.mixture_ratio_a == 10
-    assert settings.mixture_density_b_g_per_ml == pytest.approx(0.9)
-    assert not settings.mixture_use_shared_density
+    assert [p.part_name for p in settings.mixture.parts] == ["右の型", "Unused"]
+    assert [p.volume_ml for p in settings.mixture.parts] == [12.5, 30]
+    assert settings.mixture.parts[0].selected
+    assert not settings.mixture.parts[1].enabled
+    assert settings.mixture.ratio_a == 10
+    assert settings.mixture.density_b_g_per_ml == pytest.approx(0.9)
+    assert not settings.mixture.use_shared_density
 
 
 def test_colors_append_with_independent_materials_and_exact_doses(settings, tmp_path):
@@ -85,12 +85,12 @@ def test_colors_append_with_independent_materials_and_exact_doses(settings, tmp_
 
 @pytest.mark.parametrize("invalid", [None, True, -1, "12", float("nan"), float("inf")])
 def test_invalid_late_row_does_not_change_existing_mixture(settings, tmp_path, invalid):
-    settings.mixture_parts.add().part_name = "Keep me"
+    settings.mixture.parts.add().part_name = "Keep me"
     path = tmp_path / "mixture.json"
     bpy.ops.silicone_casting.export_recipes(filepath=str(path))
     doc = json.loads(path.read_text())
-    doc["data"]["mixture_ratio_a"] = 4
-    doc["data"]["mixture_parts"].append(
+    doc["data"]["ratio_a"] = 4
+    doc["data"]["parts"].append(
         {
             "enabled": True,
             "selected": False,
@@ -101,27 +101,27 @@ def test_invalid_late_row_does_not_change_existing_mixture(settings, tmp_path, i
     path.write_text(json.dumps(doc))
     with pytest.raises(RuntimeError):
         bpy.ops.silicone_casting.import_recipes(filepath=str(path))
-    assert settings.mixture_ratio_a == 1
-    assert [p.part_name for p in settings.mixture_parts] == ["Keep me"]
+    assert settings.mixture.ratio_a == 1
+    assert [p.part_name for p in settings.mixture.parts] == ["Keep me"]
 
 
 @pytest.mark.parametrize("invalid", ["before\x00after", "\ud800", "\udfff"])
 def test_invalid_name_does_not_partially_replace_the_mixture(
     settings, tmp_path, invalid
 ):
-    settings.mixture_parts.add().part_name = "Keep me"
+    settings.mixture.parts.add().part_name = "Keep me"
     path = tmp_path / "mixture.json"
     bpy.ops.silicone_casting.export_recipes(filepath=str(path))
     doc = json.loads(path.read_text())
-    doc["data"]["mixture_ratio_a"] = 4
-    doc["data"]["mixture_parts"][0]["part_name"] = invalid
+    doc["data"]["ratio_a"] = 4
+    doc["data"]["parts"][0]["part_name"] = invalid
     path.write_text(json.dumps(doc))
 
     with pytest.raises(RuntimeError):
         bpy.ops.silicone_casting.import_recipes(filepath=str(path))
 
-    assert settings.mixture_ratio_a == 1
-    assert [p.part_name for p in settings.mixture_parts] == ["Keep me"]
+    assert settings.mixture.ratio_a == 1
+    assert [p.part_name for p in settings.mixture.parts] == ["Keep me"]
 
 
 @pytest.mark.parametrize("invalid", ["before\x00after", "\ud800", "\udfff"])
@@ -158,6 +158,28 @@ def test_malformed_or_unsupported_document_preserves_profiles(
     with pytest.raises(RuntimeError):
         bpy.ops.silicone_casting.import_recipes(filepath=str(path), kind="COLORS")
     assert [p.profile_name for p in settings.color_profiles] == ["Keep"]
+
+
+@pytest.mark.parametrize("kind", ["MIXTURE", "COLORS"])
+def test_obsolete_recipe_version_is_rejected_before_changing_saved_inputs(
+    settings, tmp_path, kind
+):
+    settings.mixture.parts.add().part_name = "Keep mixture"
+    bpy.ops.silicone_casting.add_color_profile()
+    settings.color_profiles[0].profile_name = "Keep color"
+    path = tmp_path / "obsolete.json"
+    bpy.ops.silicone_casting.export_recipes(filepath=str(path), kind=kind)
+    doc = json.loads(path.read_text())
+    doc["version"] = 1
+    path.write_text(json.dumps(doc))
+    materials = set(bpy.data.materials)
+
+    with pytest.raises(RuntimeError):
+        bpy.ops.silicone_casting.import_recipes(filepath=str(path), kind=kind)
+
+    assert [p.part_name for p in settings.mixture.parts] == ["Keep mixture"]
+    assert [p.profile_name for p in settings.color_profiles] == ["Keep color"]
+    assert set(bpy.data.materials) == materials
 
 
 def test_export_adds_json_extension_and_reports_io_errors(settings, tmp_path):

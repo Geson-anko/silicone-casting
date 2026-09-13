@@ -1,13 +1,71 @@
 """Mesh snapping respects visibility, screen distance, and stroke topology."""
 
+import bpy
 import pytest
+from _helpers import MeshData, make_cube_mesh
+from conftest import MakeObject
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
+from silicone_casting.core.solidify import ensure_solidify
 from silicone_casting.core.surface_picking import (
+    SurfaceSnapshot,
     extend_stroke_along_edge,
     pick_surface_element,
 )
+
+
+def test_snapshot_rays_use_world_transforms_and_keep_multiple_surfaces_separate(
+    cube_object: bpy.types.Object, make_object: MakeObject
+) -> None:
+    cube_object.location = (-4, 0, 0)
+    cube_object.scale = (2, 1, 1)
+    other = make_object(make_cube_mesh(2, "Second surface"))
+    other.location = (4, 0, 0)
+    other.scale = (1, 1, 3)
+    before = set(bpy.data.meshes)
+
+    snapshot = SurfaceSnapshot.from_objects(
+        [cube_object, other], bpy.context.evaluated_depsgraph_get()
+    )
+    first_hit = snapshot.bvh.ray_cast(Vector((-4, 0, 10)), Vector((0, 0, -1)))[0]
+    second_hit = snapshot.bvh.ray_cast(Vector((4, 0, 10)), Vector((0, 0, -1)))[0]
+
+    assert tuple(first_hit) == pytest.approx((-4, 0, 1))
+    assert tuple(second_hit) == pytest.approx((4, 0, 3))
+    assert len(snapshot.vertices) == 16
+    assert len(snapshot.edges) == 24
+    assert set(bpy.data.meshes) == before
+
+
+def test_snapshot_uses_evaluated_geometry_and_survives_temporary_mesh_release(
+    cube_object: bpy.types.Object,
+) -> None:
+    source = MeshData.from_mesh(cube_object.data)
+    ensure_solidify(cube_object, 0.5)
+    before = set(bpy.data.meshes)
+
+    snapshot = SurfaceSnapshot.from_objects(
+        [cube_object], bpy.context.evaluated_depsgraph_get()
+    )
+    hit = snapshot.bvh.ray_cast(Vector((0, 0, 10)), Vector((0, 0, -1)))[0]
+
+    assert tuple(hit) == pytest.approx((0, 0, 1.5))
+    assert MeshData.from_mesh(cube_object.data) == source
+    assert set(bpy.data.meshes) == before
+
+
+def test_snapshot_rejects_faceless_geometry_without_retaining_mesh_data(
+    empty_mesh: bpy.types.Mesh, make_object: MakeObject
+) -> None:
+    # Give the object fixture its own datablock so each fixture owns its cleanup.
+    obj = make_object(empty_mesh.copy())
+    before = set(bpy.data.meshes)
+
+    with pytest.raises(ValueError, match="faces"):
+        SurfaceSnapshot.from_objects([obj], bpy.context.evaluated_depsgraph_get())
+
+    assert set(bpy.data.meshes) == before
 
 
 def _pick(mouse, *, vertex_mode):

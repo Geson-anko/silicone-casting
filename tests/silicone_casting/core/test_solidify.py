@@ -10,10 +10,10 @@ carry the whole load instead.
 
 import bpy
 import pytest
-from _helpers import mesh_invariants
+from _helpers import MeshInvariants
 from conftest import MakeObject
 
-from silicone_casting.core import (
+from silicone_casting.core.solidify import (
     MODIFIER_NAME,
     apply_solidify,
     ensure_solidify,
@@ -152,7 +152,7 @@ class TestApplySolidifyBakesTheSpecifiedShell:
 
         # A closed source has no boundary for a rim to bridge, so the
         # result is exactly the cube twice over: 8+8, 12+12, 6+6.
-        invariants = mesh_invariants(cube_object.data)
+        invariants = MeshInvariants.from_mesh(cube_object.data)
         assert invariants.vertex_count == 16
         assert invariants.edge_count == 24
         assert invariants.face_count == 12
@@ -166,7 +166,7 @@ class TestApplySolidifyBakesTheSpecifiedShell:
 
         # Watertight is the precondition for printing at all; the two
         # loose parts are the outer shell and the cavity wall.
-        invariants = mesh_invariants(cube_object.data)
+        invariants = MeshInvariants.from_mesh(cube_object.data)
         assert invariants.is_watertight
         assert invariants.loose_part_count == 2
 
@@ -177,7 +177,7 @@ class TestApplySolidifyBakesTheSpecifiedShell:
 
         apply_solidify(cube_object, bpy.context.evaluated_depsgraph_get())
 
-        invariants = mesh_invariants(cube_object.data)
+        invariants = MeshInvariants.from_mesh(cube_object.data)
         assert invariants.volume == pytest.approx(
             EXPECTED_OUTWARD_VOLUME, abs=VOLUME_TOL
         )
@@ -193,7 +193,7 @@ class TestApplySolidifyBakesTheSpecifiedShell:
         # it the corner vertices would only travel `thickness` along the
         # averaged normal and stop at +-(1 + 0.003 / sqrt(3)) ~ +-1.001732,
         # i.e. a wall thinner than the millimetres the user asked for.
-        invariants = mesh_invariants(cube_object.data)
+        invariants = MeshInvariants.from_mesh(cube_object.data)
         assert invariants.bbox_min == pytest.approx((-1.003, -1.003, -1.003), abs=1e-6)
         assert invariants.bbox_max == pytest.approx((1.003, 1.003, 1.003), abs=1e-6)
 
@@ -206,7 +206,7 @@ class TestApplySolidifyBakesTheSpecifiedShell:
 
         # Spec S-3: the source surface becomes the *outer* face, so the
         # silhouette the user modelled is preserved exactly.
-        invariants = mesh_invariants(cube_object.data)
+        invariants = MeshInvariants.from_mesh(cube_object.data)
         assert invariants.bbox_min == pytest.approx((-1.0, -1.0, -1.0), abs=1e-6)
         assert invariants.bbox_max == pytest.approx((1.0, 1.0, 1.0), abs=1e-6)
 
@@ -217,7 +217,7 @@ class TestApplySolidifyBakesTheSpecifiedShell:
 
         apply_solidify(cube_object, bpy.context.evaluated_depsgraph_get())
 
-        invariants = mesh_invariants(cube_object.data)
+        invariants = MeshInvariants.from_mesh(cube_object.data)
         assert invariants.volume == pytest.approx(
             EXPECTED_INWARD_VOLUME, abs=VOLUME_TOL
         )
@@ -294,7 +294,7 @@ class TestApplySolidifyIgnoresTheRestOfTheStack:
         # FR-14: baking means "base mesh plus this one modifier", the same
         # meaning Blender's own modifier_apply has. A subdivision that
         # leaked into the bake would push the count well past 16.
-        assert mesh_invariants(cube_object.data).vertex_count == 16
+        assert MeshInvariants.from_mesh(cube_object.data).vertex_count == 16
 
 
 class TestApplySolidifyRefusesUnsafeInput:
@@ -325,7 +325,7 @@ class TestApplySolidifyOnDegenerateGeometry:
     ) -> None:
         # Spec 8.2: Blender's Solidify accepts a face-less mesh and yields
         # nothing; the add-on has no reason to invent an error of its own.
-        # mesh_invariants cannot describe a mesh with no vertices (there is
+        # MeshInvariants cannot describe a mesh with no vertices (there is
         # no bounding box), so the counts are read straight off the mesh.
         obj = make_object(bpy.data.meshes.new("TestEmpty"), "TestEmpty")
 

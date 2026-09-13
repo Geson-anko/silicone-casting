@@ -1,6 +1,6 @@
 """Operator that copies a value shown in the sidebar to the clipboard."""
 
-from typing import cast, override
+from typing import TYPE_CHECKING, override
 
 import bpy
 from bpy.props import StringProperty
@@ -22,17 +22,16 @@ class SILCAST_OT_copy_value(bpy.types.Operator):
     # without a value to copy.
     bl_options = {"REGISTER", "INTERNAL"}
 
-    value: StringProperty(  # pyright: ignore[reportInvalidTypeForm]
-        name="Value",
-        default="",
-    )
+    if TYPE_CHECKING:
+        value: str
+    else:
+        value: StringProperty(
+            name="Value",
+            default="",
+        )
 
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
-        # A `bpy.props` annotation is not a type, so pyright cannot tell what
-        # the attribute resolves to; Blender turns it into a plain str at
-        # register time.
-        value = cast(str, self.value)  # pyright: ignore[reportUnknownMemberType]
-        context.window_manager.clipboard = value
-        self.report({"INFO"}, f"Copied {value}")
+        context.window_manager.clipboard = self.value
+        self.report({"INFO"}, f"Copied {self.value}")
         return {"FINISHED"}

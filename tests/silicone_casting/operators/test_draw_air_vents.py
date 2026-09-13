@@ -4,7 +4,7 @@ import bpy
 import pytest
 
 import silicone_casting
-from silicone_casting.operators import (
+from silicone_casting.operators.draw_air_vents import (
     SILCAST_OT_draw_air_vents,
     cancel_air_vent_drawing,
 )

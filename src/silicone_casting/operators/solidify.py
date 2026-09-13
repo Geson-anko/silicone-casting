@@ -4,7 +4,9 @@ from typing import override
 
 import bpy
 
-from ..core import apply_solidify, ensure_solidify, find_solidify, mm_to_units
+from ..core.solidify import apply_solidify, ensure_solidify, find_solidify
+from ..core.units import mm_to_units
+from ..properties.settings import scene_settings
 from ._operator import OperatorReturn, selected_meshes
 
 
@@ -22,7 +24,7 @@ class SILCAST_OT_solidify(bpy.types.Operator):
 
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
-        props = context.scene.silicone_casting
+        props = scene_settings(context)
         thickness = mm_to_units(
             props.solidify_thickness_mm,
             context.scene.unit_settings.scale_length,

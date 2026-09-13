@@ -6,7 +6,9 @@ import bpy
 import pytest
 
 import silicone_casting
-from silicone_casting.operators import SILCAST_OT_separate_loose_parts
+from silicone_casting.operators.separate_loose_parts import (
+    SILCAST_OT_separate_loose_parts,
+)
 
 PART_VERTICES = [
     (0.0, 0.0, 0.0),

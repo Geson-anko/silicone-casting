@@ -64,6 +64,79 @@ def edge_loop(edge: tuple[int, int], faces: Sequence[Sequence[int]]) -> list[int
     return path
 
 
+def _extend_along_loop(
+    stroke: Sequence[Vector],
+    vertices: Sequence[Vector],
+    path: Sequence[int],
+    tolerance: float,
+) -> list[Vector]:
+    """Reuse selected loop edges and grow both ends of the current stroke."""
+    if not stroke:
+        return [vertices[i].copy() for i in path]
+    # Reuse selected edges and grow both ends as for manual input.
+    remaining = [
+        (a, b)
+        for a, b in zip(path, path[1:])
+        if not any(
+            (
+                (vertices[a] - p).length <= tolerance
+                and (vertices[b] - q).length <= tolerance
+            )
+            or (
+                (vertices[b] - p).length <= tolerance
+                and (vertices[a] - q).length <= tolerance
+            )
+            for p, q in zip(stroke, stroke[1:])
+        )
+    ]
+    result = list(stroke)
+    while remaining:
+        for pair in remaining:
+            a, b = pair
+            if any(
+                (vertices[i] - endpoint).length <= tolerance
+                for i in pair
+                for endpoint in (result[0], result[-1])
+            ):
+                result = extend_stroke_along_edge(
+                    result, vertices[a], vertices[b], tolerance
+                )
+                remaining.remove(pair)
+                break
+        else:
+            raise ValueError("Select a loop connected to an end of the current stroke")
+    return result
+
+
+def _shortest_path_to_edge(
+    adjacency: dict[int, list[tuple[int, float]]],
+    start: int,
+    edge: tuple[int, int],
+) -> list[int]:
+    """Find the nearest edge endpoint by length, then traverse that edge."""
+    distances = {start: 0.0}
+    parents: dict[int, int] = {}
+    queue = [(0.0, start)]
+    while queue:
+        distance, current = heappop(queue)
+        if distance != distances[current]:
+            continue
+        if current in edge:
+            path = [current]
+            while path[-1] != start:
+                path.append(parents[path[-1]])
+            path.reverse()
+            path.append(edge[1] if current == edge[0] else edge[0])
+            return path
+        for other, length in adjacency.get(current, []):
+            candidate = distance + length
+            if candidate < distances.get(other, float("inf")):
+                distances[other] = candidate
+                parents[other] = current
+                heappush(queue, (candidate, other))
+    raise ValueError("No connected path to that edge")
+
+
 def extend_edge_path(
     stroke: Sequence[Vector],
     vertices: Sequence[Vector],
@@ -76,44 +149,7 @@ def extend_edge_path(
 ) -> list[Vector]:
     """Extend a stroke by one whole loop or a shortest edge-length path."""
     if loop:
-        path = edge_loop(edge, faces)
-        if not stroke:
-            return [vertices[i].copy() for i in path]
-        # Reuse selected edges and grow both ends as for manual input.
-        remaining = [
-            (a, b)
-            for a, b in zip(path, path[1:])
-            if not any(
-                (
-                    (vertices[a] - p).length <= tolerance
-                    and (vertices[b] - q).length <= tolerance
-                )
-                or (
-                    (vertices[b] - p).length <= tolerance
-                    and (vertices[a] - q).length <= tolerance
-                )
-                for p, q in zip(stroke, stroke[1:])
-            )
-        ]
-        result = list(stroke)
-        while remaining:
-            for pair in remaining:
-                a, b = pair
-                if any(
-                    (vertices[i] - endpoint).length <= tolerance
-                    for i in pair
-                    for endpoint in (result[0], result[-1])
-                ):
-                    result = extend_stroke_along_edge(
-                        result, vertices[a], vertices[b], tolerance
-                    )
-                    remaining.remove(pair)
-                    break
-            else:
-                raise ValueError(
-                    "Select a loop connected to an end of the current stroke"
-                )
-        return result
+        return _extend_along_loop(stroke, vertices, edge_loop(edge, faces), tolerance)
     if not stroke:
         return [vertices[i].copy() for i in edge]
     if len(stroke) > 2 and (stroke[0] - stroke[-1]).length <= tolerance:
@@ -133,29 +169,8 @@ def extend_edge_path(
         length = (vertices[a] - vertices[b]).length
         adjacency.setdefault(a, []).append((b, length))
         adjacency.setdefault(b, []).append((a, length))
-    distances = {start: 0.0}
-    parents: dict[int, int] = {}
-    queue = [(0.0, start)]
-    while queue:
-        distance, current = heappop(queue)
-        if distance != distances[current]:
-            continue
-        if current in edge:
-            path = [current]
-            while path[-1] != start:
-                path.append(parents[path[-1]])
-            path.reverse()
-            path.append(edge[1] if current == edge[0] else edge[0])
-            result = list(stroke)
-            for a, b in zip(path, path[1:]):
-                result = extend_stroke_along_edge(
-                    result, vertices[a], vertices[b], tolerance
-                )
-            return result
-        for other, length in adjacency.get(current, []):
-            candidate = distance + length
-            if candidate < distances.get(other, float("inf")):
-                distances[other] = candidate
-                parents[other] = current
-                heappush(queue, (candidate, other))
-    raise ValueError("No connected path to that edge")
+    path = _shortest_path_to_edge(adjacency, start, edge)
+    result = list(stroke)
+    for a, b in zip(path, path[1:]):
+        result = extend_stroke_along_edge(result, vertices[a], vertices[b], tolerance)
+    return result

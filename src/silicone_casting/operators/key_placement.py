@@ -11,45 +11,16 @@ from bpy_extras import view3d_utils
 from gpu_extras.batch import (
     batch_for_shader,  # pyright: ignore[reportUnknownVariableType]
 )
-from mathutils import Matrix, Vector
+from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
-from ..core.registration_keys import KeyDimensions, key_geometry, placement_matrix
-from ..core.units import mm_to_units
+from ..core.surface_picking import SurfaceSnapshot
+from ..properties.settings import scene_settings
 from ._operator import OperatorReturn
-from .key_editing import is_registration_key, load_key_settings
+from .key_models import KeyPair, KeySettings
 
 _TOOL_ID = "silicone_casting.registration_keys"
 _gesture: SILCAST_OT_place_key | None = None
-
-
-def _dimensions(context: bpy.types.Context) -> KeyDimensions:
-    p = context.scene.silicone_casting
-    scale = context.scene.unit_settings.scale_length
-    return KeyDimensions(
-        p.key_shape,
-        *(
-            mm_to_units(getattr(p, f"key_{name}_mm"), scale)
-            for name in (
-                "width",
-                "length",
-                "height",
-                "embed",
-                "clearance",
-                "depth_clearance",
-            )
-        ),
-        taper=p.key_taper,
-    )
-
-
-def _matrix(context: bpy.types.Context, position: Vector, normal: Vector) -> Matrix:
-    p = context.scene.silicone_casting
-    if not p.key_align_normal:
-        normal = Vector({"X": (1, 0, 0), "Y": (0, 1, 0), "Z": (0, 0, 1)}[p.key_axis])
-    if p.key_flip:
-        normal = -normal
-    return placement_matrix(position, normal, p.key_angle)
 
 
 def _ray(context: bpy.types.Context, xy: tuple[float, float]) -> tuple[Vector, Vector]:
@@ -79,7 +50,7 @@ def _object_hit(
 
 def _pick(
     context: bpy.types.Context, xy: tuple[float, float]
-) -> tuple[bpy.types.Object | None, tuple[Vector, Vector] | None]:
+) -> tuple[KeyPair | None, tuple[Vector, Vector] | None]:
     target = context.active_object
     if target is None or target.type != "MESH":
         return None, None
@@ -89,13 +60,16 @@ def _pick(
     limit = (hit[0] - origin).length + 1e-5 if hit else float("inf")
     nearest = None
     for obj in context.scene.objects:
-        if obj.parent != target or not is_registration_key(obj):
+        if obj.parent != target:
+            continue
+        pair = KeyPair.from_pin(obj)
+        if pair is None:
             continue
         candidate = _object_hit(obj, origin, direction)
         if candidate is not None:
             distance = (candidate[0] - origin).length
             if distance <= limit:
-                nearest = obj
+                nearest = pair
                 limit = distance
     return nearest, hit
 
@@ -108,23 +82,16 @@ def _surface(context: bpy.types.Context, target: bpy.types.Object) -> BVHTree:
         for m in target.modifiers
         if isinstance(m, bpy.types.BooleanModifier)
         and m.object is not None
-        and is_registration_key(m.object)
+        and KeyPair.from_pin(m.object) is not None
     ]
     states = [m.show_viewport for m in modifiers]
-    evaluated = None
     try:
         for m in modifiers:
             m.show_viewport = False
-        evaluated = target.evaluated_get(context.evaluated_depsgraph_get())
-        mesh = evaluated.to_mesh()
-        points = [evaluated.matrix_world @ v.co for v in mesh.vertices]
-        return BVHTree.FromPolygons(
-            [(v.x, v.y, v.z) for v in points],
-            [tuple(cast(Iterable[int], face.vertices)) for face in mesh.polygons],
-        )
+        return SurfaceSnapshot.from_objects(
+            (target,), context.evaluated_depsgraph_get()
+        ).bvh
     finally:
-        if evaluated is not None:
-            evaluated.to_mesh_clear()
         for m, state in zip(modifiers, states, strict=True):
             m.show_viewport = state
 
@@ -157,10 +124,17 @@ def _lines(
 
 
 def _ghost(
-    context: bpy.types.Context, matrix: Matrix, *, window_coordinates: bool = False
+    context: bpy.types.Context,
+    position: Vector,
+    normal: Vector,
+    *,
+    window_coordinates: bool = False,
 ) -> None:
+    settings = KeySettings.from_context(context)
+    dimensions = settings.dimensions()
+    matrix = settings.placement(position, normal)
     for socket, color in ((False, (1.0, 0.5, 0.05, 1.0)), (True, (0.2, 0.7, 1.0, 1.0))):
-        vertices, faces = key_geometry(_dimensions(context), socket=socket)
+        vertices, faces = dimensions.geometry(socket=socket)
         edges = {
             (min(a, b), max(a, b))
             for face in faces
@@ -173,6 +147,21 @@ def _ghost(
             color,
             window_coordinates=window_coordinates,
         )
+
+
+def _outline(
+    context: bpy.types.Context,
+    obj: bpy.types.Object,
+    color: tuple[float, float, float, float],
+) -> None:
+    mesh = cast(bpy.types.Mesh, obj.data)
+    _lines(
+        context,
+        [obj.matrix_world @ v.co for v in mesh.vertices],
+        (cast(tuple[int, int], edge.vertices) for edge in mesh.edges),
+        color,
+        window_coordinates=True,
+    )
 
 
 class SILCAST_WST_registration_keys(bpy.types.WorkSpaceTool):
@@ -219,35 +208,17 @@ class SILCAST_WST_registration_keys(bpy.types.WorkSpaceTool):
         mouse = (float(xy[0] - context.region.x), float(xy[1] - context.region.y))
         try:
             key, hit = _pick(context, mouse)
-            selected = context.scene.silicone_casting.key_active
+            selected = KeyPair.from_pin(scene_settings(context).key_active)
             if (
                 selected is not None
                 and selected != key
-                and selected.parent == context.active_object
-                and is_registration_key(selected)
+                and selected.pin.parent == context.active_object
             ):
-                mesh = cast(bpy.types.Mesh, selected.data)
-                _lines(
-                    context,
-                    [selected.matrix_world @ v.co for v in mesh.vertices],
-                    (cast(tuple[int, int], e.vertices) for e in mesh.edges),
-                    (1.0, 0.5, 0.05, 1.0),
-                    window_coordinates=True,
-                )
+                _outline(context, selected.pin, (1.0, 0.5, 0.05, 1.0))
             if key is not None:
-                mesh = cast(bpy.types.Mesh, key.data)
-                edges = [
-                    tuple(cast(Iterable[int], edge.vertices)) for edge in mesh.edges
-                ]
-                _lines(
-                    context,
-                    [key.matrix_world @ v.co for v in mesh.vertices],
-                    ((e[0], e[1]) for e in edges),
-                    (0.3, 1.0, 0.35, 1.0),
-                    window_coordinates=True,
-                )
+                _outline(context, key.pin, (0.3, 1.0, 0.35, 1.0))
             elif hit is not None:
-                _ghost(context, _matrix(context, *hit), window_coordinates=True)
+                _ghost(context, *hit, window_coordinates=True)
         except (ValueError, RuntimeError, ReferenceError):
             # No geometry or invalid dimensions: the click operator reports it.
             return
@@ -262,15 +233,7 @@ class SILCAST_OT_start_key_placement(bpy.types.Operator):
     @classmethod
     @override
     def poll(cls, context: bpy.types.Context) -> bool:
-        p = context.scene.silicone_casting
-        obj = context.active_object
-        return (
-            context.mode == "OBJECT"
-            and obj is not None
-            and obj.type == "MESH"
-            and p.key_mate is not None
-            and p.key_mate != obj
-        )
+        return KeyPair.can_create(context)
 
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
@@ -328,9 +291,9 @@ class SILCAST_OT_place_key(bpy.types.Operator):
         key, hit = _pick(context, (self._press.x, self._press.y))
         if hit is None and key is None:
             return {"CANCELLED"}
-        self._key_name = key.name if key is not None else ""
+        self._key_name = key.pin.name if key is not None else ""
         if key is not None:
-            load_key_settings(context, key)
+            key.select(context)
         self._bvh = _surface(context, target)
         self._position = Vector((0, 0, 0))
         self._normal = Vector((0, 0, 1))
@@ -366,7 +329,7 @@ class SILCAST_OT_place_key(bpy.types.Operator):
         context = bpy.context
         if context.area == self._area and self._valid:
             try:
-                _ghost(context, _matrix(context, self._position, self._normal))
+                _ghost(context, self._position, self._normal)
             except ValueError:
                 return
 
@@ -398,30 +361,30 @@ class SILCAST_OT_place_key(bpy.types.Operator):
             return {"RUNNING_MODAL"}
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
             self._finish()
-            if self._key_name and not self._moved:
-                return {"FINISHED"}
-            if not self._valid:
-                return {"CANCELLED"}
-            position = (self._position.x, self._position.y, self._position.z)
-            normal = (self._normal.x, self._normal.y, self._normal.z)
-            try:
-                if self._key_name:
-                    return cast(
-                        OperatorReturn,
-                        getattr(bpy.ops, "silicone_casting").move_registration_key(
-                            key_name=self._key_name, location=position, normal=normal
-                        ),
-                    )
-                return cast(
-                    OperatorReturn,
-                    getattr(bpy.ops, "silicone_casting").add_registration_key(
-                        location=position, normal=normal
-                    ),
-                )
-            except RuntimeError as exc:
-                self.report({"WARNING"}, str(exc))
-                return {"CANCELLED"}
+            return self._commit(context)
         return {"RUNNING_MODAL"}
+
+    def _commit(self, context: bpy.types.Context) -> OperatorReturn:
+        if self._key_name and not self._moved:
+            return {"FINISHED"}
+        if not self._valid:
+            return {"CANCELLED"}
+        try:
+            if self._key_name:
+                KeyPair.from_context(context, self._key_name).move(
+                    context, self._position, self._normal
+                )
+            else:
+                KeyPair.create(
+                    context,
+                    KeySettings.from_context(context),
+                    self._position,
+                    self._normal,
+                )
+        except (ValueError, RuntimeError) as exc:
+            self.report({"WARNING"}, str(exc))
+            return {"CANCELLED"}
+        return {"FINISHED"}
 
 
 def cancel_key_gesture() -> None:

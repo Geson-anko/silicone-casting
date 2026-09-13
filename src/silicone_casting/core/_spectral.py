@@ -3,8 +3,8 @@
 from collections.abc import Iterable
 from math import exp, fsum, log
 
-RGB = tuple[float, float, float]
-Spectrum = tuple[float, ...]
+type RGB = tuple[float, float, float]
+type Spectrum = tuple[float, ...]
 
 # The 10-band conversion coefficients and epsilon handling are adapted from
 # MyPaint's lib/blending.hpp (Copyright (C) 2012 Andrew Chadwick), licensed

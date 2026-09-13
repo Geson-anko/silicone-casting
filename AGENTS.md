@@ -87,11 +87,12 @@ LLM コーディングで陥りがちなミスを減らすための行動指針�
 
 **レイアウト**: Extension のソースルートは [src/silicone_casting/](src/silicone_casting/) で、`blender_manifest.toml` と `__init__.py` が同じ階層に並ぶ（`blender --command extension build --source-dir` がそのまま通る形）。
 
-| レイヤ                                        | 責務                                                                       |
-| --------------------------------------------- | -------------------------------------------------------------------------- |
-| [core/](src/silicone_casting/core/)           | メッシュ処理の本体。`bpy.ops` に依存せず、シーンも depsgraph も要求しない  |
-| [operators/](src/silicone_casting/operators/) | `core` を Blender オペレータとして公開する薄い層。入力検証と `self.report` |
-| [ui/](src/silicone_casting/ui/)               | サイドバーパネルと `Scene.silicone_casting` に載る `PropertyGroup`         |
+| レイヤ                                          | 責務                                                                                              |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| [core/](src/silicone_casting/core/)             | メッシュ処理の本体。`bpy.ops` に依存しない計算。評価メッシュが必要な処理だけ depsgraph を受け取る |
+| [properties/](src/silicone_casting/properties/) | 型付き RNA と保存状態。配合・色プロファイルの操作と計算入力を所有                                 |
+| [operators/](src/silicone_casting/operators/)   | Blender の操作入口。入力検証・報告と、キーや描画セッションの寿命管理                              |
+| [ui/](src/silicone_casting/ui/)                 | パネル・リストの表示。保存状態と計算ロジックは持たない                                            |
 
 **サイドバーの構成**: 親パネル `SILCAST_PT_main` は中身を持たないヘッダーで、コントロールはその下のサブパネル 3 つが持つ（`SILCAST_PT_measurement` = Measurement、`SILCAST_PT_coloring` = Coloring、`SILCAST_PT_processing` = Processing。並び順は `bl_order`）。機能を足すときはどのセクションに載せるかを先に決める。
 
@@ -157,11 +158,21 @@ LLM コーディングで陥りがちなミスを減らすための行動指針�
 
 ### Blender の public surface
 
-以下は Blender 側の UI・キーマップ・既存 `.blend` から参照されるため、実質的な公開 API として扱う。リファクタリングで勝手に変えない:
+以下は Blender 側の UI・キーマップ・既存 `.blend` から参照されるため、変更時には呼び出し側と保存への影響を確認する:
 
 - オペレータの `bl_idname`（例: `silicone_casting.solidify`）
 - `PropertyGroup` のプロパティ名と `Scene` への登録名（`Scene.silicone_casting`）
 - パネルの `bl_idname` / `bl_category`
+
+今回のリファクタリングでは、UI 操作から生まれる結果を保つ限り、Python API・RNA 保存構造の破壊的変更がユーザーから許可されている。UI 自体も改善のために変更できる。互換ラッパーや廃止フローを残す理由に旧契約を使わず、実際の操作・計算・Undo・新形式での保存と読込を検証する。
+
+### 型と生成・操作の所有
+
+- 型エイリアスは `type RGB = ...` 構文を使う
+- データクラスの変換・検証付き生成は `@classmethod` ファクトリに置く
+- インスタンスのデータを扱う処理は、そのクラスのメソッドへ集約する
+- RNA 宣言は `if TYPE_CHECKING` の具体型と `else` の Blender プロパティ定義を分け、型回避の Protocol を増やさない
+- 呼び出し側は定義モジュールから直接 import し、`__init__.py` は登録とライフサイクルだけを扱う
 
 ### private モジュール規約
 
@@ -169,7 +180,7 @@ LLM コーディングで陥りがちなミスを減らすための行動指針�
 
 - テストを書かない（真に private な実装）→ ファイル名に `_` prefix を付ける
 - テストを書く / 書かれている → `_` prefix を **付けない**
-- 外部公開は親 `__init__.py` の `__all__` で別軸として集約管理する
+- 便宜的な再 export と互換ファサードは作らず、定義モジュールを参照する
 
 ### カプセル化
 

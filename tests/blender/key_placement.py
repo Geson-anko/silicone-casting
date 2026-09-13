@@ -41,11 +41,10 @@ def _run():
     view = space.region_3d
     assert view is not None
     assert bpy.context.preferences.edit.use_global_undo, "Enable Global Undo"
-    editing = next(
+    key_models = next(
         module
         for name, module in tuple(sys.modules.items())
-        if name.endswith(".operators.key_editing")
-        and hasattr(module, "is_registration_key")
+        if name.endswith(".operators.key_models") and hasattr(module, "KeyPair")
     )
     scene = bpy.data.scenes.new("Registration Key GUI Regression")
     _state.scene_name = scene.name
@@ -110,7 +109,11 @@ def _run():
     def pins():
         # Undo replaces RNA datablocks: resolve the current scene and helpers
         # afresh instead of retaining object references across native undo.
-        return [obj for obj in window.scene.objects if editing.is_registration_key(obj)]
+        return [
+            obj
+            for obj in window.scene.objects
+            if key_models.KeyPair.from_pin(obj) is not None
+        ]
 
     def has_pin(point):
         return any(

@@ -13,6 +13,103 @@ from bpy_extras.view3d_utils import location_3d_to_region_2d
 from mathutils import Quaternion, Vector
 
 
+def _external_deletion_case(state, window, area, region, event, operator_name, removed):
+    """Cancel after Outliner-style deletions and start another drawing."""
+    selected = tuple(bpy.context.selected_objects)
+    active = bpy.context.active_object
+    props = bpy.context.scene.silicone_casting
+    input_mode = props.surface_cut_input_mode
+    fixtures = []
+    fixture_meshes = []
+    for obj in selected:
+        obj.select_set(False)
+    for index, x in enumerate((-3.2, 0, 3.2)):
+        with bpy.context.temp_override(window=window, area=area, region=region):
+            bpy.ops.mesh.primitive_cube_add(size=2, location=(x, 0, -1))
+        obj = bpy.context.active_object
+        obj.name = f"External deletion target {index}"
+        obj.show_wire = index != 1
+        obj.show_all_edges = index == 2
+        fixtures.append(obj.name)
+        fixture_meshes.append(obj.data.name)
+    targets = [bpy.data.objects[name] for name in fixtures]
+    for obj in targets:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = targets[1]
+    wire = {obj.name: (obj.show_wire, obj.show_all_edges) for obj in targets}
+    props.surface_cut_input_mode = "EDGE"
+    objects, meshes = set(bpy.data.objects), set(bpy.data.meshes)
+    operator = getattr(bpy.ops.silicone_casting, operator_name)
+
+    try:
+        with bpy.context.temp_override(window=window, area=area, region=region):
+            assert operator("INVOKE_DEFAULT") == {"RUNNING_MODAL"}
+        yield
+        preview = next(obj for obj in bpy.data.objects if obj not in objects)
+        if operator_name == "draw_air_vents" and removed == "preview":
+            event("MOUSEMOVE", "NOTHING", (-0.5, 0, 0))
+            yield
+            event("LEFTMOUSE", point=(-0.5, 0, 0))
+            yield
+            event("MOUSEMOVE", "NOTHING", (0.5, 0, 0))
+            yield
+            event("LEFTMOUSE", "RELEASE", (0.5, 0, 0))
+            yield
+            assert preview.data.polygons, "Create a replacement preview mesh first"
+
+        if removed == "preview":
+            preview_mesh_name = preview.data.name
+            bpy.data.objects.remove(preview, do_unlink=True)
+            survivors = fixtures
+        else:
+            target = targets[1 if removed == "active target" else 0]
+            survivors = [name for name in fixtures if name != target.name]
+            objects.remove(target)
+            bpy.data.objects.remove(target, do_unlink=True)
+        event("ESC")
+        for _ in range(5):
+            yield
+
+        assert set(bpy.data.objects) == objects
+        assert set(bpy.data.meshes) == meshes
+        if removed == "preview":
+            assert bpy.data.meshes.get(preview_mesh_name) is None
+        for name in survivors:
+            obj = bpy.data.objects[name]
+            assert (obj.show_wire, obj.show_all_edges) == wire[name]
+            assert obj.select_get(), "Restore surviving selections after cancellation"
+        bpy.context.view_layer.objects.active = bpy.data.objects[survivors[0]]
+        with bpy.context.temp_override(window=window, area=area, region=region):
+            assert bpy.ops.silicone_casting.draw_air_vents.poll()
+            assert bpy.ops.silicone_casting.draw_surface_cut.poll()
+            assert operator("INVOKE_DEFAULT") == {"RUNNING_MODAL"}
+        yield
+        event("ESC")
+        for _ in range(5):
+            yield
+        assert set(bpy.data.objects) == objects
+        assert set(bpy.data.meshes) == meshes
+        with bpy.context.temp_override(window=window, area=area, region=region):
+            assert bpy.ops.silicone_casting.draw_air_vents.poll()
+            assert bpy.ops.silicone_casting.draw_surface_cut.poll()
+        state.checks.append(
+            f"{operator_name}: deleting {removed} allows cancel/restart"
+        )
+    finally:
+        for name in fixtures:
+            obj = bpy.data.objects.get(name)
+            if obj is not None:
+                bpy.data.objects.remove(obj, do_unlink=True)
+        for name in fixture_meshes:
+            mesh = bpy.data.meshes.get(name)
+            if mesh is not None and mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
+        props.surface_cut_input_mode = input_mode
+        for obj in selected:
+            obj.select_set(True)
+        bpy.context.view_layer.objects.active = active
+
+
 def _steps(state):
     assert bpy.app.use_event_simulate
     addon = sys.modules["bl_ext.user_default.silicone_casting"]
@@ -213,7 +310,7 @@ def _steps(state):
     assert set(bpy.context.selected_objects) == set(targets[:2])
     state.checks.append("shared Boolean cuts only the original targets")
 
-    from bl_ext.user_default.silicone_casting.core import world_volume
+    from bl_ext.user_default.silicone_casting.core.volume import world_volume
 
     depsgraph = bpy.context.evaluated_depsgraph_get()
     for target in targets[:2]:
@@ -249,6 +346,14 @@ def _steps(state):
     assert set(bpy.data.objects) == objects
     assert set(bpy.data.meshes) == meshes
     state.checks.append("cancel after drawing leaves no orphan meshes")
+
+    for operator_name in ("draw_air_vents", "draw_surface_cut"):
+        for removed in ("preview", "active target", "selected target"):
+            yield from _external_deletion_case(
+                state, window, area, region, event, operator_name, removed
+            )
+    assert set(bpy.data.objects) == objects
+    assert set(bpy.data.meshes) == meshes
 
     # Disabling the extension must clean up an active modal preview as well.
     invoke()

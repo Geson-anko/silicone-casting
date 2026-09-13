@@ -1,29 +1,22 @@
 """Operators that add Boolean modifiers to the active mesh."""
 
-from typing import Literal, Protocol, cast, override
+from typing import TYPE_CHECKING, Literal, cast, override
 
 import bpy
 from bpy.props import EnumProperty
 
-from ..core import MIN_SURFACE_CUT_THICKNESS_MM, create_surface_cut, mm_to_units
+from ..core.surface_cut import MIN_SURFACE_CUT_THICKNESS_MM, create_surface_cut
+from ..core.units import mm_to_units
+from ..properties.settings import BooleanSolver, scene_settings
 from ._operator import OperatorReturn
 
-_BooleanOperation = Literal["DIFFERENCE", "UNION", "INTERSECT"]
-_BooleanSolver = Literal["MANIFOLD", "EXACT", "FLOAT"]
+type _BooleanOperation = Literal["DIFFERENCE", "UNION", "INTERSECT"]
 
 _OPERATIONS = (
     ("DIFFERENCE", "Difference", "Subtract the operand from the active mesh"),
     ("UNION", "Union", "Combine the active mesh and operand"),
     ("INTERSECT", "Intersect", "Keep only the volume shared with the operand"),
 )
-
-
-class _BooleanSettings(Protocol):
-    """Typed view of the Boolean fields stored on the scene."""
-
-    boolean_operand: bpy.types.Object | None
-    boolean_solver: _BooleanSolver
-    surface_cut_thickness_mm: float
 
 
 def _boolean_inputs(
@@ -39,7 +32,7 @@ def _boolean_inputs(
     ):
         return None
 
-    props = cast(_BooleanSettings, context.scene.silicone_casting)
+    props = scene_settings(context)
     operand = props.boolean_operand
     if operand is None or operand.type != "MESH" or operand == target:
         return None
@@ -50,7 +43,7 @@ def _add_boolean_modifier(
     target: bpy.types.Object,
     operand: bpy.types.Object,
     operation: _BooleanOperation,
-    solver: _BooleanSolver,
+    solver: BooleanSolver,
 ) -> bpy.types.BooleanModifier:
     """Add and configure one object-operand Boolean modifier."""
     modifier = cast(
@@ -71,12 +64,15 @@ class SILCAST_OT_add_boolean(bpy.types.Operator):
     bl_label = "Add Boolean Modifier"
     bl_options = {"REGISTER", "UNDO"}
 
-    operation: EnumProperty(  # pyright: ignore[reportInvalidTypeForm]
-        name="Operation",
-        items=_OPERATIONS,
-        default="DIFFERENCE",
-        options={"SKIP_SAVE"},
-    )
+    if TYPE_CHECKING:
+        operation: _BooleanOperation
+    else:
+        operation: EnumProperty(
+            name="Operation",
+            items=_OPERATIONS,
+            default="DIFFERENCE",
+            options={"SKIP_SAVE"},
+        )
 
     @classmethod
     @override
@@ -94,14 +90,12 @@ class SILCAST_OT_add_boolean(bpy.types.Operator):
             return {"CANCELLED"}
 
         target, operand = inputs
-        props = cast(_BooleanSettings, context.scene.silicone_casting)
-        operation = cast(
-            _BooleanOperation,
-            self.operation,  # pyright: ignore[reportUnknownMemberType]
-        )
-        _add_boolean_modifier(target, operand, operation, props.boolean_solver)
+        props = scene_settings(context)
+        _add_boolean_modifier(target, operand, self.operation, props.boolean_solver)
 
-        self.report({"INFO"}, f"Added {operation.title()} Boolean to {target.name}")
+        self.report(
+            {"INFO"}, f"Added {self.operation.title()} Boolean to {target.name}"
+        )
         return {"FINISHED"}
 
 
@@ -132,7 +126,7 @@ class SILCAST_OT_add_surface_cut(bpy.types.Operator):
             return {"CANCELLED"}
 
         target, surface = inputs
-        props = cast(_BooleanSettings, context.scene.silicone_casting)
+        props = scene_settings(context)
         thickness = mm_to_units(
             props.surface_cut_thickness_mm,
             context.scene.unit_settings.scale_length,
