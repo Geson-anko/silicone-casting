@@ -14,9 +14,9 @@ import pytest
 from _helpers import make_cube_mesh
 
 import silicone_casting
-from silicone_casting.operators import SILCAST_OT_export_stl
 from silicone_casting.operators.export_stl import (
     _LAST_EXPORT_DIRECTORY_KEY,
+    SILCAST_OT_export_stl,
     _default_filepath,
 )
 
@@ -25,7 +25,7 @@ SOLIDIFY_THICKNESS = 1.0
 EXPORT_SCALE = 1000.0
 FAR_CUBE_LOCATION_X = 10.0
 
-AddObject = Callable[..., bpy.types.Object]
+type AddObject = Callable[..., bpy.types.Object]
 
 
 def _leave_edit_mode() -> None:
@@ -49,6 +49,14 @@ def reset_export_directory(registered: None) -> Iterator[None]:
     yield
     if _LAST_EXPORT_DIRECTORY_KEY in window_manager:
         del window_manager[_LAST_EXPORT_DIRECTORY_KEY]
+
+
+@pytest.fixture
+def scene_units() -> Iterator[bpy.types.UnitSettings]:
+    units = bpy.context.scene.unit_settings
+    original = units.system, units.scale_length
+    yield units
+    units.system, units.scale_length = original
 
 
 @pytest.fixture
@@ -125,6 +133,41 @@ class TestWhenTheExportButtonIsClickable:
 
 
 class TestExportStlOperator:
+    @pytest.mark.parametrize(
+        ("system", "metres_per_unit", "side_in_units"),
+        [
+            ("METRIC", 1.0, 0.02),
+            ("METRIC", 0.01, 2.0),
+            ("METRIC", 0.001, 20.0),
+            ("IMPERIAL", 0.0254, 0.02 / 0.0254),
+            ("NONE", 0.001, 20.0),
+        ],
+    )
+    def test_export_keeps_a_twenty_millimetre_cube_at_its_physical_size(
+        self,
+        add_object: AddObject,
+        tmp_path: Path,
+        scene_units: bpy.types.UnitSettings,
+        system: str,
+        metres_per_unit: float,
+        side_in_units: float,
+    ) -> None:
+        scene_units.system = system
+        scene_units.scale_length = metres_per_unit
+        source = add_object("20 mm Mold", make_cube_mesh(side_in_units, "MoldMesh"))
+        bpy.context.view_layer.objects.active = source
+        path = tmp_path / "20mm.stl"
+
+        assert bpy.ops.silicone_casting.export_stl(filepath=str(path)) == {"FINISHED"}
+
+        vertices = _read_binary_stl_vertices(path)
+        for axis in range(3):
+            coordinates = [vertex[axis] for vertex in vertices]
+            assert min(coordinates) == pytest.approx(-10.0, abs=1e-4)
+            assert max(coordinates) == pytest.approx(10.0, abs=1e-4)
+        assert scene_units.system == system
+        assert scene_units.scale_length == pytest.approx(metres_per_unit)
+
     def test_selected_non_mesh_objects_are_ignored_during_export(
         self, add_object: AddObject, tmp_path: Path
     ) -> None:

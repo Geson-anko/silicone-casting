@@ -41,7 +41,8 @@ def log(message: str) -> None:
 
 def check_extension() -> None:
     """Report whether the add-on is loaded, so a failed install is obvious."""
-    if hasattr(bpy.ops, "silicone_casting"):
+    _enabled, loaded = addon_utils.check(EXTENSION_MODULE)
+    if loaded:
         log(f"extension loaded: {EXTENSION_MODULE}")
         log("panel: 3D View sidebar (N) -> Silicone Casting")
     else:
@@ -53,11 +54,12 @@ def enable_mcp_addon() -> bool:
 
     Returns whether it is available.
     """
-    enabled, _loaded = addon_utils.check(MCP_ADDON_MODULE)
-    if not enabled:
-        addon_utils.enable(MCP_ADDON_MODULE, default_set=True)
+    _enabled, loaded = addon_utils.check(MCP_ADDON_MODULE)
+    if not loaded:
+        addon_utils.enable(MCP_ADDON_MODULE, default_set=False)
 
-    if hasattr(bpy.ops, "blendermcp"):
+    # bpy.ops creates arbitrary namespaces on access, even for absent add-ons.
+    if "start_server" in dir(bpy.ops.blendermcp):
         return True
 
     log(f"WARNING: BlenderMCP add-on '{MCP_ADDON_MODULE}' not found -- MCP disabled")

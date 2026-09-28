@@ -117,6 +117,7 @@ def check_addon_is_enabled() -> None:
         "add_boolean",
         "add_surface_cut",
         "draw_surface_cut",
+        "draw_air_vents",
         "edit_cutting_surface",
         "separate_loose_parts",
         "inherit_shape",
@@ -154,34 +155,38 @@ def check_scene_properties() -> None:
         "surface_cut_thickness_mm",
         "surface_cut_margin_mm",
         "surface_cut_input_mode",
-        "mixture_use_shared_density",
-        "mixture_density_a_g_per_ml",
-        "mixture_density_b_g_per_ml",
-        "mixture_ratio_a",
-        "mixture_ratio_b",
-        "mixture_parts",
-        "mixture_selection_anchor",
-        "mixture_active_index",
+        "mixture",
         "color_profiles",
         "color_profile_active_index",
     ):
         assert name in names, f"{name} is missing; scene settings have {sorted(names)}"
+    mixture_names = set(settings.mixture.bl_rna.properties.keys())
+    assert {
+        "use_shared_density",
+        "density_a_g_per_ml",
+        "density_b_g_per_ml",
+        "ratio_a",
+        "ratio_b",
+        "parts",
+        "selection_anchor",
+        "active_index",
+    } <= mixture_names
 
 
 def check_mixture_part_operations() -> None:
     """The installed add-on must add, select, move, and remove rows."""
     settings = bpy.context.scene.silicone_casting
-    settings.mixture_parts.clear()
+    settings.mixture.parts.clear()
     for name in ("A", "B", "C", "D"):
         result = bpy.ops.silicone_casting.add_mixture_part()
         assert result == {"FINISHED"}, f"add_mixture_part returned {result}"
-        settings.mixture_parts[-1].part_name = name
+        settings.mixture.parts[-1].part_name = name
 
     bpy.ops.silicone_casting.select_mixture_part(index=1, mode="REPLACE")
     bpy.ops.silicone_casting.select_mixture_part(index=3, mode="TOGGLE")
     result = bpy.ops.silicone_casting.move_mixture_parts(direction="UP")
     assert result == {"FINISHED"}, f"move_mixture_parts returned {result}"
-    assert [part.part_name for part in settings.mixture_parts] == [
+    assert [part.part_name for part in settings.mixture.parts] == [
         "B",
         "A",
         "D",
@@ -190,8 +195,8 @@ def check_mixture_part_operations() -> None:
 
     result = bpy.ops.silicone_casting.remove_mixture_parts()
     assert result == {"FINISHED"}, f"remove_mixture_parts returned {result}"
-    assert [part.part_name for part in settings.mixture_parts] == ["A", "C"]
-    assert settings.mixture_selection_anchor == -1
+    assert [part.part_name for part in settings.mixture.parts] == ["A", "C"]
+    assert settings.mixture.selection_anchor == -1
 
 
 def check_named_color_profiles_update_and_apply_independently() -> None:
@@ -240,16 +245,15 @@ def check_named_color_profiles_update_and_apply_independently() -> None:
     assert cube.active_material == cool.preview_material
 
 
-def check_mixture_settings_survive_save_and_reload() -> None:
-    """Saved calculator and color-profile inputs must survive a .blend round-
-    trip."""
+def _prepare_saved_mixture_settings() -> None:
+    """Populate independent mixture rows and color profiles before saving."""
     settings = bpy.context.scene.silicone_casting
-    settings.mixture_parts.clear()
-    settings.mixture_use_shared_density = False
-    settings.mixture_density_a_g_per_ml = 1.5
-    settings.mixture_density_b_g_per_ml = 1.0
-    settings.mixture_ratio_a = 3.0
-    settings.mixture_ratio_b = 1.0
+    settings.mixture.parts.clear()
+    settings.mixture.use_shared_density = False
+    settings.mixture.density_a_g_per_ml = 1.5
+    settings.mixture.density_b_g_per_ml = 1.0
+    settings.mixture.ratio_a = 3.0
+    settings.mixture.ratio_b = 1.0
     settings.color_profiles.clear()
     settings.color_profile_active_index = -1
 
@@ -284,19 +288,119 @@ def check_mixture_settings_survive_save_and_reload() -> None:
     white.calibration_lightness_percent = 100.0
     white.drops = 50.0
 
-    body = settings.mixture_parts.add()
+    body = settings.mixture.parts.add()
     body.enabled = True
     body.selected = False
     body.part_name = "Body"
     body.volume_ml = 60.0
 
-    lid = settings.mixture_parts.add()
+    lid = settings.mixture.parts.add()
     lid.enabled = False
     lid.selected = True
     lid.part_name = "Lid"
     lid.volume_ml = 30.0
-    settings.mixture_selection_anchor = 1
-    settings.mixture_active_index = 1
+    settings.mixture.selection_anchor = 1
+    settings.mixture.active_index = 1
+
+
+def _assert_loaded_mixture_inputs(loaded: bpy.types.PropertyGroup) -> None:
+    """Verify saved values and the reset of transient row selection after
+    loading."""
+    assert not loaded.mixture.use_shared_density
+    assert abs(loaded.mixture.density_a_g_per_ml - 1.5) <= TOLERANCE
+    assert abs(loaded.mixture.density_b_g_per_ml - 1.0) <= TOLERANCE
+    assert abs(loaded.mixture.ratio_a - 3.0) <= TOLERANCE
+    assert abs(loaded.mixture.ratio_b - 1.0) <= TOLERANCE
+    assert [part.part_name for part in loaded.mixture.parts] == ["Body", "Lid"]
+    assert [part.enabled for part in loaded.mixture.parts] == [True, False]
+    assert [part.selected for part in loaded.mixture.parts] == [False, True]
+    assert [part.volume_ml for part in loaded.mixture.parts] == [60.0, 30.0]
+    assert loaded.mixture.selection_anchor == -1
+    assert loaded.mixture.active_index == -1
+
+
+def _assert_loaded_color_profiles(loaded: bpy.types.PropertyGroup) -> None:
+    """Verify saved colorants, independent materials, and rebuilt preview
+    colors."""
+    assert [profile.profile_name for profile in loaded.color_profiles] == [
+        "Clear Yellow",
+        "Opaque White",
+    ]
+    loaded_clear = loaded.color_profiles[0]
+    loaded_opaque = loaded.color_profiles[1]
+    assert abs(loaded_clear.base_volume_ml - 125.0) <= TOLERANCE
+    assert all(
+        abs(actual - expected) <= TOLERANCE
+        for actual, expected in zip(
+            loaded_clear.base_color,
+            (1.0, 0.9, 0.7),
+            strict=True,
+        )
+    )
+    assert abs(loaded_clear.transparency - 0.9) <= TOLERANCE
+    assert len(loaded_clear.colorants) == 1
+    loaded_amber = loaded_clear.colorants[0]
+    assert loaded_amber.colorant_name == "Amber"
+    assert abs(loaded_amber.calibration_hue_degrees - 30.0) <= TOLERANCE
+    assert abs(loaded_amber.calibration_lightness_percent - 25.0) <= TOLERANCE
+    assert abs(loaded_amber.calibration_drops_per_ml - 2.0) <= TOLERANCE
+    assert abs(loaded_amber.drops - 0.5) <= TOLERANCE
+    assert abs(loaded_opaque.transparency - 0.8) <= TOLERANCE
+    assert len(loaded_opaque.colorants) == 2
+    loaded_blue = loaded_opaque.colorants[0]
+    loaded_white = loaded_opaque.colorants[1]
+    assert loaded_blue.colorant_name == "Blue"
+    assert abs(loaded_blue.calibration_hue_degrees - 240.0) <= TOLERANCE
+    assert abs(loaded_blue.calibration_lightness_percent - 50.0) <= TOLERANCE
+    assert loaded_white.colorant_name == "White"
+    assert abs(loaded_white.calibration_hue_degrees - 30.0) <= TOLERANCE
+    assert abs(loaded_white.calibration_lightness_percent - 100.0) <= TOLERANCE
+    shader = loaded_opaque.preview_material.node_tree.nodes["Silicone Casting Shader"]
+    assert abs(shader.inputs["Transmission Weight"].default_value) <= TOLERANCE
+    assert abs(shader.inputs["Subsurface Weight"].default_value) <= TOLERANCE
+    assert all(
+        abs(actual - expected) <= TOLERANCE
+        for actual, expected in zip(
+            loaded_opaque.preview_material.diffuse_color,
+            (0.036822, 0.107334, 1.0, 1.0),
+            strict=True,
+        )
+    )
+    assert loaded_clear.preview_material != loaded_opaque.preview_material
+    assert loaded.color_profile_active_index == 1
+    assert loaded_clear.colorant_active_index == -1
+
+
+def _check_reloaded_recipe_round_trip(
+    loaded: bpy.types.PropertyGroup, path: Path
+) -> None:
+    """Scale a restored dye dose and round-trip it through recipe JSON."""
+    loaded_clear = loaded.color_profiles[0]
+    loaded_amber = loaded_clear.colorants[0]
+    # The first volume edit after reloading must scale saved dye doses.
+    loaded_clear.base_volume_ml *= 2
+    assert abs(loaded_amber.drops - 1.0) <= TOLERANCE
+    recipe_path = str(path.with_suffix(".json"))
+    result = bpy.ops.silicone_casting.export_recipes(
+        filepath=recipe_path, kind="COLORS"
+    )
+    assert result == {"FINISHED"}
+    result = bpy.ops.silicone_casting.import_recipes(
+        filepath=recipe_path, kind="COLORS"
+    )
+    assert result == {"FINISHED"}
+    assert len(loaded.color_profiles) == 4
+    loaded_clear = loaded.color_profiles[0]
+    imported = loaded.color_profiles[2]
+    assert abs(imported.base_volume_ml - loaded_clear.base_volume_ml) <= TOLERANCE
+    assert abs(imported.colorants[0].drops - 1.0) <= TOLERANCE
+    assert imported.preview_material != loaded_clear.preview_material
+
+
+def check_mixture_settings_survive_save_and_reload() -> None:
+    """Saved calculator and color-profile inputs must survive a .blend round-
+    trip."""
+    _prepare_saved_mixture_settings()
 
     with tempfile.TemporaryDirectory() as directory:
         path = Path(directory) / "mixture-round-trip.blend"
@@ -306,85 +410,9 @@ def check_mixture_settings_survive_save_and_reload() -> None:
         assert result == {"FINISHED"}, f"open_mainfile returned {result}"
 
         loaded = bpy.context.scene.silicone_casting
-        assert not loaded.mixture_use_shared_density
-        assert abs(loaded.mixture_density_a_g_per_ml - 1.5) <= TOLERANCE
-        assert abs(loaded.mixture_density_b_g_per_ml - 1.0) <= TOLERANCE
-        assert abs(loaded.mixture_ratio_a - 3.0) <= TOLERANCE
-        assert abs(loaded.mixture_ratio_b - 1.0) <= TOLERANCE
-        assert [part.part_name for part in loaded.mixture_parts] == ["Body", "Lid"]
-        assert [part.enabled for part in loaded.mixture_parts] == [True, False]
-        assert [part.selected for part in loaded.mixture_parts] == [False, True]
-        assert [part.volume_ml for part in loaded.mixture_parts] == [60.0, 30.0]
-        assert loaded.mixture_selection_anchor == -1
-        assert loaded.mixture_active_index == -1
-        assert [profile.profile_name for profile in loaded.color_profiles] == [
-            "Clear Yellow",
-            "Opaque White",
-        ]
-        loaded_clear = loaded.color_profiles[0]
-        loaded_opaque = loaded.color_profiles[1]
-        assert abs(loaded_clear.base_volume_ml - 125.0) <= TOLERANCE
-        assert all(
-            abs(actual - expected) <= TOLERANCE
-            for actual, expected in zip(
-                loaded_clear.base_color,
-                (1.0, 0.9, 0.7),
-                strict=True,
-            )
-        )
-        assert abs(loaded_clear.transparency - 0.9) <= TOLERANCE
-        assert len(loaded_clear.colorants) == 1
-        loaded_amber = loaded_clear.colorants[0]
-        assert loaded_amber.colorant_name == "Amber"
-        assert abs(loaded_amber.calibration_hue_degrees - 30.0) <= TOLERANCE
-        assert abs(loaded_amber.calibration_lightness_percent - 25.0) <= TOLERANCE
-        assert abs(loaded_amber.calibration_drops_per_ml - 2.0) <= TOLERANCE
-        assert abs(loaded_amber.drops - 0.5) <= TOLERANCE
-        assert abs(loaded_opaque.transparency - 0.8) <= TOLERANCE
-        assert len(loaded_opaque.colorants) == 2
-        loaded_blue = loaded_opaque.colorants[0]
-        loaded_white = loaded_opaque.colorants[1]
-        assert loaded_blue.colorant_name == "Blue"
-        assert abs(loaded_blue.calibration_hue_degrees - 240.0) <= TOLERANCE
-        assert abs(loaded_blue.calibration_lightness_percent - 50.0) <= TOLERANCE
-        assert loaded_white.colorant_name == "White"
-        assert abs(loaded_white.calibration_hue_degrees - 30.0) <= TOLERANCE
-        assert abs(loaded_white.calibration_lightness_percent - 100.0) <= TOLERANCE
-        shader = loaded_opaque.preview_material.node_tree.nodes[
-            "Silicone Casting Shader"
-        ]
-        assert abs(shader.inputs["Transmission Weight"].default_value) <= TOLERANCE
-        assert abs(shader.inputs["Subsurface Weight"].default_value) <= TOLERANCE
-        assert all(
-            abs(actual - expected) <= TOLERANCE
-            for actual, expected in zip(
-                loaded_opaque.preview_material.diffuse_color,
-                (0.036822, 0.107334, 1.0, 1.0),
-                strict=True,
-            )
-        )
-        assert loaded_clear.preview_material != loaded_opaque.preview_material
-        assert loaded.color_profile_active_index == 1
-        assert loaded_clear.colorant_active_index == -1
-
-        # The first volume edit after reloading must scale saved dye doses.
-        loaded_clear.base_volume_ml *= 2
-        assert abs(loaded_amber.drops - 1.0) <= TOLERANCE
-        recipe_path = str(path.with_suffix(".json"))
-        result = bpy.ops.silicone_casting.export_recipes(
-            filepath=recipe_path, kind="COLORS"
-        )
-        assert result == {"FINISHED"}
-        result = bpy.ops.silicone_casting.import_recipes(
-            filepath=recipe_path, kind="COLORS"
-        )
-        assert result == {"FINISHED"}
-        assert len(loaded.color_profiles) == 4
-        loaded_clear = loaded.color_profiles[0]
-        imported = loaded.color_profiles[2]
-        assert abs(imported.base_volume_ml - loaded_clear.base_volume_ml) <= TOLERANCE
-        assert abs(imported.colorants[0].drops - 1.0) <= TOLERANCE
-        assert imported.preview_material != loaded_clear.preview_material
+        _assert_loaded_mixture_inputs(loaded)
+        _assert_loaded_color_profiles(loaded)
+        _check_reloaded_recipe_round_trip(loaded, path)
 
 
 def check_solidify_then_apply_gives_a_double_walled_cube() -> None:
@@ -470,6 +498,66 @@ def check_boolean_modifier_uses_the_requested_inputs() -> None:
     assert modifier.object == operand
     assert modifier.operation == "UNION"
     assert modifier.solver == "MANIFOLD"
+
+
+def check_registration_keys_create_edit_and_delete() -> None:
+    """Installed key operators produce paired evaluated solids."""
+    import importlib
+
+    from mathutils import Vector
+
+    world_volume = importlib.import_module(f"{ADDON_MODULE}.core.volume").world_volume
+    key_models = importlib.import_module(f"{ADDON_MODULE}.operators.key_models")
+    scene = bpy.context.scene
+    settings = scene.silicone_casting
+    old_scale = scene.unit_settings.scale_length
+    old_cursor = scene.cursor.location.copy()
+    created = []
+    try:
+        scene.unit_settings.scale_length = 0.001
+        _deselect_everything()
+        bpy.ops.mesh.primitive_cube_add(size=20, location=(0, 0, -10))
+        pin_half = bpy.context.active_object
+        created.append(pin_half)
+        bpy.ops.mesh.primitive_cube_add(size=20, location=(0, 0, 10))
+        socket_half = bpy.context.active_object
+        created.append(socket_half)
+        socket_half.select_set(False)
+        pin_half.select_set(True)
+        bpy.context.view_layer.objects.active = pin_half
+        settings.key_mate = socket_half
+        settings.key_shape = "TAPERED"
+        scene.cursor.location = (0, 0, 0)
+        first = key_models.KeyPair.create(
+            bpy.context,
+            key_models.KeySettings.from_context(bpy.context),
+            Vector((0, 0, 0)),
+            Vector((0, 0, 1)),
+        )
+        created.extend((first.pin, first.socket))
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        assert world_volume(pin_half, depsgraph) > 8000
+        assert 0 < world_volume(socket_half, depsgraph) < 8000
+        second = key_models.KeyPair.create(
+            bpy.context,
+            key_models.KeySettings.from_context(bpy.context),
+            Vector((5, 0, 0)),
+            Vector((0, 0, 1)),
+        )
+        settings.key_width = 3
+        assert bpy.ops.silicone_casting.edit_registration_key() == {"FINISHED"}
+        second.move(bpy.context, Vector((5, 3, 0)), Vector((0, 0, 1)))
+        assert bpy.ops.silicone_casting.delete_registration_key() == {"FINISHED"}
+        assert len(pin_half.modifiers) == len(socket_half.modifiers) == 1
+    finally:
+        settings.key_mate = None
+        for obj in created:
+            mesh = obj.data
+            bpy.data.objects.remove(obj, do_unlink=True)
+            if mesh.users == 0:
+                bpy.data.meshes.remove(mesh)
+        scene.unit_settings.scale_length = old_scale
+        scene.cursor.location = old_cursor
 
 
 def check_surface_cut_is_one_integrated_modifier() -> None:
@@ -756,6 +844,65 @@ def check_export_stl_uses_the_fixed_settings() -> None:
     assert modifier.name in selected.modifiers, "export applied the source modifier"
 
 
+def check_export_stl_preserves_physical_size_with_custom_scene_units() -> None:
+    """A 20 mm cube must stay 20 mm even when distance labels are disabled."""
+    _deselect_everything()
+    bpy.ops.mesh.primitive_cube_add(size=20.0)
+    units = bpy.context.scene.unit_settings
+    previous = units.system, units.scale_length
+    try:
+        units.system = "NONE"
+        units.scale_length = 0.001
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "20mm.stl"
+            result = bpy.ops.silicone_casting.export_stl(filepath=str(path))
+            assert result == {"FINISHED"}, f"export_stl returned {result}"
+            vertices = _binary_stl_vertices(path)
+        for axis in range(3):
+            coordinates = [vertex[axis] for vertex in vertices]
+            assert abs(min(coordinates) + 10.0) <= STL_TOLERANCE
+            assert abs(max(coordinates) - 10.0) <= STL_TOLERANCE
+    finally:
+        units.system, units.scale_length = previous
+
+
+def check_air_vents_cut_both_mold_halves() -> None:
+    """The installed extension produces one live shared cutter for two
+    halves."""
+    from bl_ext.user_default.silicone_casting.core.air_vents import (
+        add_air_vent_cutters,
+        create_air_vent_mesh,
+    )
+    from bl_ext.user_default.silicone_casting.core.volume import world_volume
+    from mathutils import Vector
+
+    targets = []
+    for x in (-1.0, 1.0):
+        bpy.ops.mesh.primitive_cube_add(size=2, location=(x, 0, 0))
+        targets.append(bpy.context.active_object)
+    cutter_mesh = create_air_vent_mesh(
+        "Air Vents",
+        [[Vector((-3, 0, 0)), Vector((3, 0, 0))]],
+        Vector((0, 0, 1)),
+        0.4,
+    )
+    cutter = bpy.data.objects.new("Air Vents", cutter_mesh)
+    bpy.context.scene.collection.objects.link(cutter)
+    try:
+        add_air_vent_cutters(targets, cutter)
+        bpy.context.view_layer.update()
+        depsgraph = bpy.context.evaluated_depsgraph_get()
+        for target in targets:
+            assert target.modifiers[-1].object == cutter
+            volume = world_volume(target, depsgraph)
+            assert volume is not None and 7.7 < volume < 7.8
+    finally:
+        for obj in [*targets, cutter]:
+            mesh = obj.data
+            bpy.data.objects.remove(obj, do_unlink=True)
+            bpy.data.meshes.remove(mesh)
+
+
 CHECKS = (
     check_addon_is_enabled,
     check_scene_properties,
@@ -763,12 +910,15 @@ CHECKS = (
     check_named_color_profiles_update_and_apply_independently,
     check_solidify_then_apply_gives_a_double_walled_cube,
     check_boolean_modifier_uses_the_requested_inputs,
+    check_registration_keys_create_edit_and_delete,
     check_surface_cut_is_one_integrated_modifier,
+    check_air_vents_cut_both_mold_halves,
     check_loose_parts_become_separate_objects,
     check_measuring_a_closed_cube_stores_its_millilitres,
     check_an_open_mesh_clears_the_stored_measurement,
     check_copying_a_value_finishes,
     check_export_stl_uses_the_fixed_settings,
+    check_export_stl_preserves_physical_size_with_custom_scene_units,
     # This opens a saved .blend, so it must stay last.
     check_mixture_settings_survive_save_and_reload,
 )

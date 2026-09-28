@@ -63,4 +63,13 @@ metadata:
 - BU³ → mL（= cm³）は `volume * (scale_length * 100) ** 3`
 - `f"{x:.2f}"` は指数表記も桁区切りも出さない（`1.2e9` → `"1200000000.00"`、`1e-7` → `"0.00"`）。スプレッドシート貼り付け用の文字列として安全
 
+## 実 Blender での追加検証（2026-09-13 / 5.2.0）
+
+- `hasattr(bpy.ops, "存在しない名前")` も真になる。名前空間の存在でアドオンのロードを判定しない。`addon_utils.check` の第 2 要素が実際のロード状態で、登録済みオペレータは `dir(bpy.ops.<namespace>)` で確認できる。
+- STL の `use_scene_unit=True` は単位系 `NONE` では `scale_length` を反映しない。アドオンでは計測と同じ換算を行うため、`global_scale=1000*scale_length` と `use_scene_unit=False` を組み合わせる。
+- 出力オペレータの `execute` 内だけで拡張子を補うと、保存画面が警告するパスと実際の出力先がずれる。`check` で先に補う。5.2 の上書き警告は赤いファイル名欄と「上書き」ボタンで表示された。
+- 球形空洞・注入口・4 組のダボを持つ型では、親子を一緒に回転しただけで Exact Boolean の結果が非閉鎖になる例があった。元の姿勢では閉鎖しており、姿勢を戻すと復旧した。`use_self` / `use_hole_tolerant` では改善しなかった。正常な姿勢で評価結果をコピーしてから回転すると、閉鎖性と体積を維持できた。
+- Boolean 後のメッシュが各辺 2 面でも、STL の同一座標を頂点として数えると重複辺が現れる場合がある。検証用モデルでは 0.00001 mm の頂点統合と微小な縮退辺の解消により、寸法と体積を保って単一の閉鎖・整合した向きの STL にできた。この値を一般の形状へ無条件に適用しない。
+- `Window.event_simulate(ctrl=True)` で UI ボタンをクリックしても、ボタンの `invoke` では `event.ctrl=False` になった。モーダル処理へ直接届くイベントと同一視せず、修飾キー操作の不具合を断定する前に受信値を確認する。
+
 関連: [[prefer-explicit-trigger-over-live-recompute]]、[[bpy-typing-and-precision-gotchas]]

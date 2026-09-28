@@ -4,7 +4,7 @@ from math import cos, pi, sin, sqrt
 
 import bpy
 import pytest
-from _helpers import make_cube_mesh, mesh_invariants
+from _helpers import MeshInvariants, make_cube_mesh
 from mathutils import Matrix, Vector
 
 from silicone_casting.core.drawn_surface import (
@@ -34,7 +34,7 @@ def test_one_loop_retains_its_boundary_and_fills_an_editable_disk():
         assert [mesh.vertices[i].co for i in boundary] == loop
         assert interior
         assert all(abs(vertex.co.z) < 1e-6 for vertex in mesh.vertices)
-        result = mesh_invariants(mesh)
+        result = MeshInvariants.from_mesh(mesh)
         assert result.vertex_count - result.edge_count + result.face_count == 1
         assert result.boundary_edge_count == 48
         assert result.loose_part_count == 1
@@ -54,7 +54,7 @@ def test_nested_loops_make_one_annulus_without_a_mode_or_winding_requirement(rev
         ]
         assert interior
         mesh.calc_loop_triangles()
-        result = mesh_invariants(mesh)
+        result = MeshInvariants.from_mesh(mesh)
         assert result.vertex_count - result.edge_count + result.face_count == 0
         assert result.boundary_edge_count == 71
         assert result.loose_part_count == 1
@@ -95,7 +95,7 @@ def test_smooth_saddle_is_interpolated_without_triangle_spacing_artifacts(radii,
         for index in interior:
             point = mesh.vertices[index].co / scale
             assert point.z == pytest.approx(0.2 * (point.x**2 - point.y**2), abs=0.001)
-        result = mesh_invariants(mesh)
+        result = MeshInvariants.from_mesh(mesh)
         assert result.loose_part_count == 1
         assert result.boundary_edge_count == 64 * len(radii)
         assert result.vertex_count - result.edge_count + result.face_count == (
@@ -140,7 +140,7 @@ def test_unequal_shifted_rims_keep_a_quad_dominated_annulus(reverse):
             0.8 * len(mesh.polygons)
         )
         assert all(face.area > 0 for face in mesh.polygons)
-        result = mesh_invariants(mesh)
+        result = MeshInvariants.from_mesh(mesh)
         assert result.vertex_count - result.edge_count + result.face_count == 0
         assert result.boundary_edge_count == 111
         assert result.loose_part_count == 1
@@ -169,7 +169,7 @@ def test_concave_annulus_falls_back_without_bridging_across_the_notch():
         assert all(
             face.center.x < -1 or abs(face.center.y) > 1 for face in mesh.polygons
         )
-        result = mesh_invariants(mesh)
+        result = MeshInvariants.from_mesh(mesh)
         assert result.vertex_count - result.edge_count + result.face_count == 0
         assert result.boundary_edge_count == 32
         assert result.loose_part_count == 1
@@ -190,7 +190,7 @@ def test_dense_pixel_sampled_boundary_keeps_a_clean_rim_for_the_cut_margin():
     mesh, boundary, _ = interpolate_cutting_surface([simplified], margin=0.00014)
     try:
         assert [mesh.vertices[i].co for i in boundary] == simplified
-        result = mesh_invariants(mesh)
+        result = MeshInvariants.from_mesh(mesh)
         assert result.boundary_edge_count == len(simplified)
         assert result.vertex_count - result.edge_count + result.face_count == 1
         assert all(face.area > 1e-14 for face in mesh.polygons)
@@ -210,7 +210,7 @@ def test_rotated_translated_and_scaled_boundaries_keep_their_shape(scale):
     try:
         assert [mesh.vertices[i].co for i in boundary] == loop
         assert interior
-        result = mesh_invariants(mesh)
+        result = MeshInvariants.from_mesh(mesh)
         assert result.vertex_count - result.edge_count + result.face_count == 1
     finally:
         bpy.data.meshes.remove(mesh)
@@ -250,7 +250,7 @@ def test_two_holes_are_detected_with_the_same_input_contract():
     ]
     mesh, _, _ = interpolate_cutting_surface(loops)
     try:
-        result = mesh_invariants(mesh)
+        result = MeshInvariants.from_mesh(mesh)
         assert result.vertex_count - result.edge_count + result.face_count == -1
         assert result.loose_part_count == 1
     finally:
@@ -275,7 +275,7 @@ def test_curved_generated_surface_splits_a_solid_and_manual_interior_edits_stay_
         bpy.context.view_layer.update()
         evaluated = target.evaluated_get(bpy.context.evaluated_depsgraph_get())
         before_mesh = bpy.data.meshes.new_from_object(evaluated)
-        before = mesh_invariants(before_mesh)
+        before = MeshInvariants.from_mesh(before_mesh)
         bpy.data.meshes.remove(before_mesh)
         assert before.is_watertight
         assert before.loose_part_count == 2
@@ -286,7 +286,7 @@ def test_curved_generated_surface_splits_a_solid_and_manual_interior_edits_stay_
         after_mesh = bpy.data.meshes.new_from_object(
             target.evaluated_get(bpy.context.evaluated_depsgraph_get())
         )
-        after = mesh_invariants(after_mesh)
+        after = MeshInvariants.from_mesh(after_mesh)
         bpy.data.meshes.remove(after_mesh)
         assert after.is_watertight
         assert after.loose_part_count == 2
@@ -334,10 +334,10 @@ def test_two_drawn_loops_split_a_hollow_mold_into_two_watertight_parts(
         evaluated = target.evaluated_get(bpy.context.evaluated_depsgraph_get())
         result_mesh = bpy.data.meshes.new_from_object(evaluated)
         try:
-            result = mesh_invariants(result_mesh)
+            result = MeshInvariants.from_mesh(result_mesh)
             assert result.is_watertight
             assert result.loose_part_count == 2
-            assert 0 < result.volume < mesh_invariants(target_mesh).volume
+            assert 0 < result.volume < MeshInvariants.from_mesh(target_mesh).volume
         finally:
             bpy.data.meshes.remove(result_mesh)
     finally:
@@ -360,7 +360,7 @@ def test_editable_patch_prefers_quads_and_keeps_boundary_and_hole_topology(holes
         assert sum(len(face.vertices) == 4 for face in mesh.polygons) > 0.6 * len(
             mesh.polygons
         )
-        result = mesh_invariants(mesh)
+        result = MeshInvariants.from_mesh(mesh)
         assert result.vertex_count - result.edge_count + result.face_count == (
             0 if holes else 1
         )

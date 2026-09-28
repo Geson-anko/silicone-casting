@@ -4,7 +4,7 @@ from typing import cast, override
 
 import bpy
 
-from ..core import separate_loose_parts
+from ..core.separate_loose_parts import separate_loose_parts
 from ._operator import OperatorReturn, selected_meshes
 
 
@@ -72,4 +72,10 @@ def _mesh_with_all_modifiers(
 
     source_mesh = cast(bpy.types.Mesh, source.data)
     mesh.name = f"{source_mesh.name}.applied"
+    # Evaluated meshes retain data-linked materials only. Bake object-level
+    # overrides into the independent output so the separated parts keep
+    # their visible colors, including deliberately empty material slots.
+    for index, slot in enumerate(source.material_slots):
+        if slot.link == "OBJECT":
+            mesh.materials[index] = slot.material
     return mesh

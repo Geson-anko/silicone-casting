@@ -17,16 +17,20 @@ asserted in ``tests/silicone_casting/test_register.py``.
 
 import pytest
 
-from silicone_casting.ui import (
+from silicone_casting.ui.color import (
     SILCAST_PT_color_simulator,
+    SILCAST_UL_color_profiles,
+    SILCAST_UL_colorants,
+)
+from silicone_casting.ui.mixture import (
+    SILCAST_PT_mixture_calculator,
+    SILCAST_UL_mixture_parts,
+)
+from silicone_casting.ui.sidebar import (
     SILCAST_PT_coloring,
     SILCAST_PT_main,
     SILCAST_PT_measurement,
-    SILCAST_PT_mixture_calculator,
     SILCAST_PT_processing,
-    SILCAST_UL_color_profiles,
-    SILCAST_UL_colorants,
-    SILCAST_UL_mixture_parts,
 )
 
 

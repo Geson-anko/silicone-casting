@@ -8,4 +8,4 @@ type: user
 
 自身で Blender アドオンのプロトタイプを書いており（[[project_prototype_addons]]）、bpy / bmesh の API にも馴染みがある。ソフトウェア側の説明は初学者向けに噛み砕く必要がない。
 
-同じ開発スタイルを別プロジェクト（MLShukai/vrcpilot、MLShukai/ResoniteIO）でも運用しており、このリポジトリの `AGENTS.md`・Codex エージェント構成・skill 群はそこから引き継いだもの。それらの規約に沿った提案を期待している。
+同じ開発スタイルを別プロジェクト（MLShukai/vrcpilot、MLShukai/ResoniteIO）でも運用しており、このリポジトリの `CLAUDE.md`・Claude エージェント構成・skill 群はそこから引き継いだもの。それらの規約に沿った提案を期待している。

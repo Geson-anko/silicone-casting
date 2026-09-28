@@ -1,7 +1,7 @@
 """Operator that exports the selected meshes with fixed STL settings."""
 
 import os
-from typing import Final, cast, override
+from typing import TYPE_CHECKING, Final, cast, override
 
 import bpy
 from bpy.props import BoolProperty, StringProperty
@@ -34,22 +34,27 @@ class SILCAST_OT_export_stl(bpy.types.Operator):
     bl_idname = "silicone_casting.export_stl"
     bl_label = "Export STL"
     bl_description = (
-        "Export only the selected meshes with modifiers applied and scale 1000"
+        "Export only the selected meshes with modifiers applied, in millimetres"
     )
 
-    filepath: StringProperty(  # pyright: ignore[reportInvalidTypeForm]
-        name="File Path",
-        subtype="FILE_PATH",
-        options={"SKIP_SAVE"},
-    )
-    filter_glob: StringProperty(  # pyright: ignore[reportInvalidTypeForm]
-        default="*.stl",
-        options={"HIDDEN"},
-    )
-    check_existing: BoolProperty(  # pyright: ignore[reportInvalidTypeForm]
-        default=True,
-        options={"HIDDEN"},
-    )
+    if TYPE_CHECKING:
+        filepath: str
+        filter_glob: str
+        check_existing: bool
+    else:
+        filepath: StringProperty(
+            name="File Path",
+            subtype="FILE_PATH",
+            options={"SKIP_SAVE"},
+        )
+        filter_glob: StringProperty(
+            default="*.stl",
+            options={"HIDDEN"},
+        )
+        check_existing: BoolProperty(
+            default=True,
+            options={"HIDDEN"},
+        )
 
     @classmethod
     @override
@@ -60,11 +65,19 @@ class SILCAST_OT_export_stl(bpy.types.Operator):
     def invoke(
         self, context: bpy.types.Context, event: bpy.types.Event
     ) -> OperatorReturn:
-        self.filepath = _default_filepath(  # pyright: ignore[reportUnknownMemberType]
-            context
-        )
+        self.filepath = _default_filepath(context)
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
+
+    @override
+    def check(self, context: bpy.types.Context) -> bool:
+        # The file browser must check the path that execute will actually write.
+        filepath = self.filepath
+        normalized = bpy.path.ensure_ext(filepath, _STL_EXTENSION)
+        if os.path.basename(filepath) and normalized != filepath:
+            self.filepath = normalized
+            return True
+        return False
 
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
@@ -74,10 +87,7 @@ class SILCAST_OT_export_stl(bpy.types.Operator):
             self.report({"ERROR"}, "Select at least one mesh in Object Mode")
             return {"CANCELLED"}
 
-        filepath = cast(
-            str,
-            self.filepath,  # pyright: ignore[reportUnknownMemberType]
-        )
+        filepath = self.filepath
         if not filepath:
             self.report({"ERROR"}, "Choose an STL file path")
             return {"CANCELLED"}
@@ -87,7 +97,11 @@ class SILCAST_OT_export_stl(bpy.types.Operator):
             filepath=filepath,
             export_selected_objects=True,
             apply_modifiers=True,
-            global_scale=_EXPORT_SCALE,
+            # Use the same metres-per-unit conversion as thickness and volume.
+            # Blender ignores scale_length when its unit system is NONE, so
+            # perform the conversion here and disable the exporter's own one.
+            global_scale=_EXPORT_SCALE * context.scene.unit_settings.scale_length,
+            use_scene_unit=False,
         )
         if "FINISHED" in result:
             context.window_manager[_LAST_EXPORT_DIRECTORY_KEY] = os.path.dirname(

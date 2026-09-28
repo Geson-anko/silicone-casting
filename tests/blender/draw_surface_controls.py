@@ -62,6 +62,8 @@ def _steps():
             "RUNNING_MODAL"
         }
     yield
+    event("MOUSEMOVE", "NOTHING", (0.014, 0, 0))
+    yield
     for i in range(121):
         angle = 2 * pi * i / 120
         event(
@@ -76,6 +78,11 @@ def _steps():
     yield
     preview = next(obj for obj in bpy.data.objects if obj not in objects)
     stroke = [v.co.copy() for v in preview.data.vertices]
+    # Start exactly on a tessellation seam and stay on the visible hemisphere.
+    # Empty strokes must not make all following preservation checks vacuous.
+    assert len(stroke) >= 3
+    assert len(preview.data.edges) == len(stroke)
+    assert all(point.z > 0 for point in stroke)
 
     # Axis shortcuts must pass through without consuming or changing strokes.
     for key, direction in [

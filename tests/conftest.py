@@ -16,7 +16,7 @@ from _helpers import make_cube_mesh
 CUBE_SIZE = 2.0
 
 #: Signature of the :func:`make_object` factory: ``(mesh, name) -> object``.
-MakeObject = Callable[..., bpy.types.Object]
+type MakeObject = Callable[..., bpy.types.Object]
 
 
 @pytest.fixture

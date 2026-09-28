@@ -1,0 +1,393 @@
+"""Native toolbar key placement with one undoable operation per gesture."""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+from typing import cast, override
+
+import bpy
+import gpu
+from bpy_extras import view3d_utils
+from gpu_extras.batch import (
+    batch_for_shader,  # pyright: ignore[reportUnknownVariableType]
+)
+from mathutils import Vector
+from mathutils.bvhtree import BVHTree
+
+from ..core.surface_picking import SurfaceSnapshot
+from ..properties.settings import scene_settings
+from ._operator import OperatorReturn
+from .key_models import KeyPair, KeySettings
+
+_TOOL_ID = "silicone_casting.registration_keys"
+_gesture: SILCAST_OT_place_key | None = None
+
+
+def _ray(context: bpy.types.Context, xy: tuple[float, float]) -> tuple[Vector, Vector]:
+    region = context.region
+    view = context.region_data
+    assert region is not None and isinstance(view, bpy.types.RegionView3D)
+    return (
+        view3d_utils.region_2d_to_origin_3d(region, view, xy),
+        view3d_utils.region_2d_to_vector_3d(region, view, xy),
+    )
+
+
+def _object_hit(
+    obj: bpy.types.Object, origin: Vector, direction: Vector
+) -> tuple[Vector, Vector] | None:
+    matrix = obj.matrix_world
+    if abs(matrix.to_3x3().determinant()) < 1e-12:
+        return None
+    inverse = matrix.inverted()
+    local_origin = inverse @ origin
+    local_direction = inverse.to_3x3() @ direction
+    hit, point, normal, _ = obj.ray_cast(local_origin, local_direction)
+    if not hit:
+        return None
+    return matrix @ point, (inverse.transposed().to_3x3() @ normal).normalized()
+
+
+def _pick(
+    context: bpy.types.Context, xy: tuple[float, float]
+) -> tuple[KeyPair | None, tuple[Vector, Vector] | None]:
+    target = context.active_object
+    if target is None or target.type != "MESH":
+        return None, None
+    origin, direction = _ray(context, xy)
+    depsgraph = context.evaluated_depsgraph_get()
+    hit = _object_hit(target.evaluated_get(depsgraph), origin, direction)
+    limit = (hit[0] - origin).length + 1e-5 if hit else float("inf")
+    nearest = None
+    for obj in context.scene.objects:
+        if obj.parent != target:
+            continue
+        pair = KeyPair.from_pin(obj)
+        if pair is None:
+            continue
+        candidate = _object_hit(obj, origin, direction)
+        if candidate is not None:
+            distance = (candidate[0] - origin).length
+            if distance <= limit:
+                nearest = pair
+                limit = distance
+    return nearest, hit
+
+
+def _surface(context: bpy.types.Context, target: bpy.types.Object) -> BVHTree:
+    # Snapshot the underlying half once at gesture start, so dragging never
+    # climbs an existing pin or follows the moving preview.
+    modifiers = [
+        m
+        for m in target.modifiers
+        if isinstance(m, bpy.types.BooleanModifier)
+        and m.object is not None
+        and KeyPair.from_pin(m.object) is not None
+    ]
+    states = [m.show_viewport for m in modifiers]
+    try:
+        for m in modifiers:
+            m.show_viewport = False
+        return SurfaceSnapshot.from_objects(
+            (target,), context.evaluated_depsgraph_get()
+        ).bvh
+    finally:
+        for m, state in zip(modifiers, states, strict=True):
+            m.show_viewport = state
+
+
+def _lines(
+    context: bpy.types.Context,
+    points: list[Vector],
+    edges: Iterable[tuple[int, int]],
+    color: tuple[float, float, float, float],
+    *,
+    window_coordinates: bool = False,
+) -> None:
+    region, view = context.region, context.region_data
+    if region is None or not isinstance(view, bpy.types.RegionView3D):
+        return
+    offset = Vector((region.x, region.y)) if window_coordinates else Vector((0, 0))
+    pixels = [view3d_utils.location_3d_to_region_2d(region, view, p) for p in points]
+    lines: list[tuple[float, float]] = []
+    for a, b in edges:
+        start, end = pixels[a], pixels[b]
+        if start is not None and end is not None:
+            start, end = start + offset, end + offset
+            lines.extend(((start.x, start.y), (end.x, end.y)))
+    if lines:
+        shader = gpu.shader.from_builtin("UNIFORM_COLOR")
+        batch = batch_for_shader(shader, "LINES", {"pos": lines})
+        shader.bind()
+        shader.uniform_float("color", color)
+        batch.draw(shader)
+
+
+def _ghost(
+    context: bpy.types.Context,
+    position: Vector,
+    normal: Vector,
+    *,
+    window_coordinates: bool = False,
+) -> None:
+    settings = KeySettings.from_context(context)
+    dimensions = settings.dimensions()
+    matrix = settings.placement(position, normal)
+    for socket, color in ((False, (1.0, 0.5, 0.05, 1.0)), (True, (0.2, 0.7, 1.0, 1.0))):
+        vertices, faces = dimensions.geometry(socket=socket)
+        edges = {
+            (min(a, b), max(a, b))
+            for face in faces
+            for a, b in zip(face, face[1:] + face[:1])
+        }
+        _lines(
+            context,
+            [matrix @ Vector(v) for v in vertices],
+            edges,
+            color,
+            window_coordinates=window_coordinates,
+        )
+
+
+def _outline(
+    context: bpy.types.Context,
+    obj: bpy.types.Object,
+    color: tuple[float, float, float, float],
+) -> None:
+    mesh = cast(bpy.types.Mesh, obj.data)
+    _lines(
+        context,
+        [obj.matrix_world @ v.co for v in mesh.vertices],
+        (cast(tuple[int, int], edge.vertices) for edge in mesh.edges),
+        color,
+        window_coordinates=True,
+    )
+
+
+class SILCAST_WST_registration_keys(bpy.types.WorkSpaceTool):
+    """Click to add/select a key; drag to move it along the mold surface."""
+
+    bl_idname = _TOOL_ID
+    bl_label = "Registration Keys"
+    bl_description = "Click a face to add; click a key to edit; drag to move; Delete removes the selected key"
+    bl_space_type = "VIEW_3D"
+    bl_context_mode = "OBJECT"
+    bl_icon = "ops.mesh.primitive_cylinder_add_gizmo"
+    bl_cursor = "CROSSHAIR"
+    bl_keymap = (
+        ("silicone_casting.place_key", {"type": "LEFTMOUSE", "value": "PRESS"}, None),
+        (
+            "silicone_casting.delete_registration_key",
+            {"type": "DEL", "value": "PRESS"},
+            None,
+        ),
+        (
+            "silicone_casting.delete_registration_key",
+            {"type": "X", "value": "PRESS"},
+            None,
+        ),
+        (
+            "silicone_casting.stop_key_placement",
+            {"type": "ESC", "value": "PRESS"},
+            None,
+        ),
+    )
+
+    @staticmethod
+    def draw_cursor(
+        context: bpy.types.Context, _tool: bpy.types.WorkSpaceTool, xy: tuple[int, int]
+    ) -> None:
+        if (
+            _gesture is not None
+            or context.region is None
+            or not isinstance(context.region_data, bpy.types.RegionView3D)
+        ):
+            return
+        # Native cursor callbacks use window coordinates; POST_PIXEL gestures
+        # use region coordinates. Convert picking and drawing in opposite directions.
+        mouse = (float(xy[0] - context.region.x), float(xy[1] - context.region.y))
+        try:
+            key, hit = _pick(context, mouse)
+            selected = KeyPair.from_pin(scene_settings(context).key_active)
+            if (
+                selected is not None
+                and selected != key
+                and selected.pin.parent == context.active_object
+            ):
+                _outline(context, selected.pin, (1.0, 0.5, 0.05, 1.0))
+            if key is not None:
+                _outline(context, key.pin, (0.3, 1.0, 0.35, 1.0))
+            elif hit is not None:
+                _ghost(context, *hit, window_coordinates=True)
+        except (ValueError, RuntimeError, ReferenceError):
+            # No geometry or invalid dimensions: the click operator reports it.
+            return
+
+
+class SILCAST_OT_start_key_placement(bpy.types.Operator):
+    """Activate the native tool without capturing global Undo/Redo events."""
+
+    bl_idname = "silicone_casting.start_key_placement"
+    bl_label = "Place Keys"
+
+    @classmethod
+    @override
+    def poll(cls, context: bpy.types.Context) -> bool:
+        return KeyPair.can_create(context)
+
+    @override
+    def execute(self, context: bpy.types.Context) -> OperatorReturn:
+        bpy.ops.wm.tool_set_by_id(name=_TOOL_ID)
+        self.report(
+            {"INFO"},
+            "Click to add/select; drag to move; update selected in panel; Delete removes; Esc exits",
+        )
+        return {"FINISHED"}
+
+
+class SILCAST_OT_stop_key_placement(bpy.types.Operator):
+    """Return to Blender's selection tool."""
+
+    bl_idname = "silicone_casting.stop_key_placement"
+    bl_label = "Finish Placing"
+
+    @override
+    def execute(self, context: bpy.types.Context) -> OperatorReturn:
+        bpy.ops.wm.tool_set_by_id(name="builtin.select_box")
+        return {"FINISHED"}
+
+
+class SILCAST_OT_place_key(bpy.types.Operator):
+    """Preview one click/drag gesture, then commit exactly one action."""
+
+    bl_idname = "silicone_casting.place_key"
+    bl_label = "Place / Move Key"
+    bl_options = {"UNDO", "BLOCKING"}
+
+    _key_name: str
+    _press: Vector
+    _bvh: BVHTree
+    _position: Vector
+    _normal: Vector
+    _valid: bool
+    _moved: bool
+    _handle: object | None = None
+    _area: bpy.types.Area | None = None
+
+    @override
+    def invoke(
+        self, context: bpy.types.Context, event: bpy.types.Event
+    ) -> OperatorReturn:
+        global _gesture
+        if (
+            not SILCAST_OT_start_key_placement.poll(context)
+            or context.region is None
+            or context.region.type != "WINDOW"
+        ):
+            return {"CANCELLED"}
+        target = context.active_object
+        assert target is not None
+        self._press = Vector((event.mouse_region_x, event.mouse_region_y))
+        key, hit = _pick(context, (self._press.x, self._press.y))
+        if hit is None and key is None:
+            return {"CANCELLED"}
+        self._key_name = key.pin.name if key is not None else ""
+        if key is not None:
+            key.select(context)
+        self._bvh = _surface(context, target)
+        self._position = Vector((0, 0, 0))
+        self._normal = Vector((0, 0, 1))
+        self._valid = False
+        self._moved = False
+        self._area = context.area
+        self._update(context, event)
+        self._handle = bpy.types.SpaceView3D.draw_handler_add(
+            self._draw, (), "WINDOW", "POST_PIXEL"
+        )
+        _gesture = self
+        context.window_manager.modal_handler_add(self)
+        return {"RUNNING_MODAL"}
+
+    def _update(self, context: bpy.types.Context, event: bpy.types.Event) -> None:
+        origin, direction = _ray(
+            context, (float(event.mouse_region_x), float(event.mouse_region_y))
+        )
+        point, normal, _, _ = self._bvh.ray_cast(origin, direction)
+        self._valid = point is not None and normal is not None
+        if point is not None and normal is not None:
+            self._position, self._normal = point, normal
+        if (
+            normal is not None
+            and context.active_object is not None
+            and context.active_object.matrix_world.to_3x3().determinant() < 0
+        ):
+            normal.negate()
+        if self._area is not None:
+            self._area.tag_redraw()
+
+    def _draw(self) -> None:
+        context = bpy.context
+        if context.area == self._area and self._valid:
+            try:
+                _ghost(context, self._position, self._normal)
+            except ValueError:
+                return
+
+    def _finish(self) -> None:
+        global _gesture
+        if self._handle is not None:
+            bpy.types.SpaceView3D.draw_handler_remove(self._handle, "WINDOW")
+            self._handle = None
+        _gesture = None
+        if self._area is not None:
+            self._area.tag_redraw()
+
+    @override
+    def cancel(self, context: bpy.types.Context) -> None:
+        self._finish()
+
+    @override
+    def modal(
+        self, context: bpy.types.Context, event: bpy.types.Event
+    ) -> OperatorReturn:
+        if event.type in {"ESC", "RIGHTMOUSE"} and event.value == "PRESS":
+            self._finish()
+            return {"CANCELLED"}
+        if event.type == "MOUSEMOVE":
+            self._moved |= (
+                Vector((event.mouse_region_x, event.mouse_region_y)) - self._press
+            ).length > 4
+            self._update(context, event)
+            return {"RUNNING_MODAL"}
+        if event.type == "LEFTMOUSE" and event.value == "RELEASE":
+            self._finish()
+            return self._commit(context)
+        return {"RUNNING_MODAL"}
+
+    def _commit(self, context: bpy.types.Context) -> OperatorReturn:
+        if self._key_name and not self._moved:
+            return {"FINISHED"}
+        if not self._valid:
+            return {"CANCELLED"}
+        try:
+            if self._key_name:
+                KeyPair.from_context(context, self._key_name).move(
+                    context, self._position, self._normal
+                )
+            else:
+                KeyPair.create(
+                    context,
+                    KeySettings.from_context(context),
+                    self._position,
+                    self._normal,
+                )
+        except (ValueError, RuntimeError) as exc:
+            self.report({"WARNING"}, str(exc))
+            return {"CANCELLED"}
+        return {"FINISHED"}
+
+
+def cancel_key_gesture() -> None:
+    """Remove a transient drawing callback when the extension unloads."""
+    if _gesture is not None:
+        _gesture.cancel(bpy.context)
