@@ -434,6 +434,7 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
             return
         self._session.replace_mesh(mesh)
         self._session.preview.display_type = "SOLID"
+        self._session.preview.show_in_front = False
         self._session.preview.vertex_groups.clear()
         self._session.preview.vertex_groups.new(name=_BOUNDARY_GROUP).add(
             boundary, 1.0, "REPLACE"
@@ -640,6 +641,7 @@ class SILCAST_OT_edit_cutting_surface(bpy.types.Operator):
             obj.select_set(False)
         surface.hide_set(False)
         surface.display_type = "SOLID"
+        surface.show_in_front = False
         surface.select_set(True)
         context.view_layer.objects.active = surface
         group = surface.vertex_groups[_INTERIOR_GROUP]

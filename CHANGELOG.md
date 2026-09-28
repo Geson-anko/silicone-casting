@@ -27,6 +27,10 @@
 - 2 階層のテスト（PyPI `bpy` wheel 上の pytest / 実 Blender へインストールしての統合チェック）と golden mesh 比較の基盤
 - Windows / macOS / Linux での CI と、タグ push でのリリース自動化
 
+### Fixed
+
+- Cutting Surface の最前面表示を面のプレビュー時に解除し、確定後や既存の面の編集時も通常の奥行きで表示
+
 ### Changed
 
 - 型エイリアスを `type` 文へ統一し、配合・混色・体積・ダボの生成と操作をクラスへ集約。RNA を `properties/` に分離し、UI の計算処理・型アダプター・互換関数・便宜的な再 export を削除

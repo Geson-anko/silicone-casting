@@ -155,6 +155,7 @@ class DrawingSession:
                     for i in range(len(path) if closed else len(path) - 1)
                 )
         self.preview.display_type = "WIRE"
+        self.preview.show_in_front = True
         mesh = cast(bpy.types.Mesh, self.preview.data)
         mesh.clear_geometry()
         mesh.from_pydata(points, edges, [])
