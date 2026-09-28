@@ -22,6 +22,13 @@ from ._operator import OperatorReturn, selected_meshes
 _MAX_REPORTED_NAMES: Final = 3
 
 
+def _list_names(names: tuple[str, ...]) -> str:
+    """Join *names* for the status bar, summarising those past the limit."""
+    listed = ", ".join(names[:_MAX_REPORTED_NAMES])
+    hidden = len(names) - _MAX_REPORTED_NAMES
+    return f"{listed} and {hidden} more" if hidden > 0 else listed
+
+
 class SILCAST_OT_measure_volume(bpy.types.Operator):
     """Measure the total volume of the selected meshes."""
 
@@ -46,37 +53,33 @@ class SILCAST_OT_measure_volume(bpy.types.Operator):
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
         # `from_objects` picks the mesh objects out of the selection itself,
-        # so the selection goes in as-is. See poll() for the `or ()`.
+        # so the selection goes in as-is.
         summary = VolumeSummary.from_objects(
             context.selected_objects or (),
             context.evaluated_depsgraph_get(),
         )
-        props = scene_settings(context)
+        settings = scene_settings(context)
 
-        names = summary.non_watertight_names
-        if names:
-            listed = ", ".join(names[:_MAX_REPORTED_NAMES])
-            hidden = len(names) - _MAX_REPORTED_NAMES
-            if hidden > 0:
-                listed = f"{listed} and {hidden} more"
+        if summary.non_watertight_names:
             # Resetting the flag on a cancelled run is deliberate. Blender
             # pushes no undo step for CANCELLED, so this reset cannot be undone
             # on its own; that asymmetry is still better than leaving the
             # previous number on screen, where it would read as the volume of
             # the selection that just failed to measure.
-            props.volume_measured = False
+            settings.volume_measured = False
+            listed = _list_names(summary.non_watertight_names)
             self.report({"ERROR"}, f"Not watertight: {listed}")
             return {"CANCELLED"}
 
-        props.volume_ml = cubic_units_to_ml(
+        settings.volume_ml = cubic_units_to_ml(
             summary.volume,
             context.scene.unit_settings.scale_length,
         )
-        props.volume_measured = True
+        settings.volume_measured = True
         # Formatted from the stored value, not the value just computed: the
         # scene property is single precision and the panel formats what is
         # stored, so reading it back keeps the reported, displayed, and copied
         # strings identical.
-        shown = format_ml(props.volume_ml)
+        shown = format_ml(settings.volume_ml)
         self.report({"INFO"}, f"{shown} mL from {summary.measured_count} object(s)")
         return {"FINISHED"}

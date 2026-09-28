@@ -24,9 +24,9 @@ class SILCAST_OT_solidify(bpy.types.Operator):
 
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
-        props = scene_settings(context)
+        settings = scene_settings(context)
         thickness = mm_to_units(
-            props.solidify_thickness_mm,
+            settings.solidify_thickness_mm,
             context.scene.unit_settings.scale_length,
         )
         objects = selected_meshes(context)
@@ -34,8 +34,8 @@ class SILCAST_OT_solidify(bpy.types.Operator):
             ensure_solidify(
                 obj,
                 thickness,
-                flip=props.solidify_flip,
-                even_thickness=props.solidify_even_thickness,
+                flip=settings.solidify_flip,
+                even_thickness=settings.solidify_even_thickness,
             )
 
         self.report({"INFO"}, f"Solidified {len(objects)} object(s)")

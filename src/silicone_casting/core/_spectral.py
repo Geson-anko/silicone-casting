@@ -1,9 +1,14 @@
 """Representative spectral reflectance conversion and subtractive mixing."""
 
+from __future__ import annotations
+
 from collections.abc import Iterable
 from math import exp, fsum, log
+from typing import TYPE_CHECKING, Final
 
-type RGB = tuple[float, float, float]
+if TYPE_CHECKING:
+    from .color_mixing import RGB
+
 type Spectrum = tuple[float, ...]
 
 # The 10-band conversion coefficients and epsilon handling are adapted from
@@ -11,10 +16,10 @@ type Spectrum = tuple[float, ...]
 # under GPL-2.0-or-later. MyPaint attributes the spectral WGM model to Scott
 # Allen Burns, Meng, and others. A 2% floor represents display black as a
 # positive reflectance, as required by the weighted geometric mean.
-_EPSILON = 0.02
-_OFFSET = 1.0 - _EPSILON
+_REFLECTANCE_FLOOR: Final = 0.02
+_REFLECTANCE_SPAN: Final = 1.0 - _REFLECTANCE_FLOOR
 
-_RGB_FROM_SPECTRUM = (
+_RGB_FROM_SPECTRUM: Final = (
     (
         0.026595621243689,
         0.049779426257903,
@@ -53,7 +58,7 @@ _RGB_FROM_SPECTRUM = (
     ),
 )
 
-_RED_SPECTRUM = (
+_RED_SPECTRUM: Final = (
     0.009281362787953,
     0.009732627042016,
     0.011254252737167,
@@ -65,7 +70,7 @@ _RED_SPECTRUM = (
     0.999961046144372,
     0.999999992756822,
 )
-_GREEN_SPECTRUM = (
+_GREEN_SPECTRUM: Final = (
     0.002854127435775,
     0.003917589679914,
     0.012132151699187,
@@ -77,7 +82,7 @@ _GREEN_SPECTRUM = (
     0.021747419446456,
     0.021384940572308,
 )
-_BLUE_SPECTRUM = (
+_BLUE_SPECTRUM: Final = (
     0.537052150373386,
     0.546646402401469,
     0.575501819073983,
@@ -90,54 +95,71 @@ _BLUE_SPECTRUM = (
     0.006676219883241,
 )
 
+_BAND_COUNT: Final = len(_RED_SPECTRUM)
 
-def _clamp_unit(value: float) -> float:
+
+def clamp_unit(value: float) -> float:
     """Clamp one scalar to the inclusive zero-to-one range."""
     return min(max(value, 0.0), 1.0)
 
 
 def _rgb_to_spectrum(color: RGB) -> Spectrum:
     """Upsample scene-linear RGB to a positive representative spectrum."""
-    red, green, blue = (_clamp_unit(channel) * _OFFSET + _EPSILON for channel in color)
-    return tuple(
-        _RED_SPECTRUM[index] * red
-        + _GREEN_SPECTRUM[index] * green
-        + _BLUE_SPECTRUM[index] * blue
-        for index in range(len(_RED_SPECTRUM))
+    red, green, blue = (
+        clamp_unit(channel) * _REFLECTANCE_SPAN + _REFLECTANCE_FLOOR
+        for channel in color
     )
+    return tuple(
+        _RED_SPECTRUM[band] * red
+        + _GREEN_SPECTRUM[band] * green
+        + _BLUE_SPECTRUM[band] * blue
+        for band in range(_BAND_COUNT)
+    )
+
+
+def _project_channel(row: Spectrum, spectrum: Spectrum) -> float:
+    """Project a spectrum onto one RGB row and undo the reflectance floor."""
+    value = fsum(
+        coefficient * sample for coefficient, sample in zip(row, spectrum, strict=True)
+    )
+    return clamp_unit((value - _REFLECTANCE_FLOOR) / _REFLECTANCE_SPAN)
 
 
 def _spectrum_to_rgb(spectrum: Spectrum) -> RGB:
     """Collapse a representative spectrum back to scene-linear RGB."""
-
-    def channel(row: tuple[float, ...]) -> float:
-        value = fsum(
-            coefficient * sample
-            for coefficient, sample in zip(row, spectrum, strict=True)
-        )
-        return _clamp_unit((value - _EPSILON) / _OFFSET)
-
+    red_row, green_row, blue_row = _RGB_FROM_SPECTRUM
     return (
-        channel(_RGB_FROM_SPECTRUM[0]),
-        channel(_RGB_FROM_SPECTRUM[1]),
-        channel(_RGB_FROM_SPECTRUM[2]),
+        _project_channel(red_row, spectrum),
+        _project_channel(green_row, spectrum),
+        _project_channel(blue_row, spectrum),
     )
 
 
-def mix_spectral_reflectance(
-    weighted_colors: Iterable[tuple[RGB, float]],
-) -> RGB:
-    """Mix representative reflectances by their weighted geometric mean."""
-    values = tuple((color, weight) for color, weight in weighted_colors if weight > 0.0)
-    total_weight = fsum(weight for _color, weight in values)
+def mix_spectral_reflectance(weighted_colors: Iterable[tuple[RGB, float]]) -> RGB:
+    """Mix representative reflectances by their weighted geometric mean.
+
+    Args:
+        weighted_colors: Scene-linear colors paired with mixing weights. Weights
+            need not sum to one; non-positive weights are ignored.
+
+    Returns:
+        The scene-linear RGB of the mixed spectrum.
+
+    Raises:
+        ValueError: If no color has a positive weight.
+    """
+    positive = tuple(
+        (color, weight) for color, weight in weighted_colors if weight > 0.0
+    )
+    total_weight = fsum(weight for _color, weight in positive)
     if total_weight <= 0.0:
         raise ValueError("At least one positive color weight is required")
 
     spectra = tuple(
-        (_rgb_to_spectrum(color), weight / total_weight) for color, weight in values
+        (_rgb_to_spectrum(color), weight / total_weight) for color, weight in positive
     )
     mixed = tuple(
-        exp(fsum(weight * log(spectrum[index]) for spectrum, weight in spectra))
-        for index in range(len(_RED_SPECTRUM))
+        exp(fsum(weight * log(spectrum[band]) for spectrum, weight in spectra))
+        for band in range(_BAND_COUNT)
     )
     return _spectrum_to_rgb(mixed)

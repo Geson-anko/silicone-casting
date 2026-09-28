@@ -1,6 +1,6 @@
 """Blender entry points for the scene's mixture table operations."""
 
-from typing import TYPE_CHECKING, override
+from typing import TYPE_CHECKING, Final, override
 
 import bpy
 from bpy.props import EnumProperty, IntProperty
@@ -9,12 +9,23 @@ from ..properties.mixture import MoveDirection, SelectionMode
 from ..properties.settings import scene_settings
 from ._operator import OperatorReturn
 
-_SELECTION_MODES = (
+_SELECTION_MODES: Final = (
     ("REPLACE", "Replace", "Select only this row"),
     ("TOGGLE", "Toggle", "Toggle this row while preserving the others"),
     ("RANGE", "Range", "Select a continuous range from the anchor"),
     ("ADD_RANGE", "Add Range", "Add a continuous range from the anchor"),
 )
+
+
+def _selection_mode_for(event: bpy.types.Event) -> SelectionMode:
+    """Map modifier keys to the list conventions: Ctrl toggles, Shift extends."""
+    if event.shift and event.ctrl:
+        return "ADD_RANGE"
+    if event.shift:
+        return "RANGE"
+    if event.ctrl:
+        return "TOGGLE"
+    return "REPLACE"
 
 
 class SILCAST_OT_add_mixture_part(bpy.types.Operator):
@@ -40,7 +51,7 @@ class SILCAST_OT_remove_mixture_parts(bpy.types.Operator):
     @classmethod
     @override
     def poll(cls, context: bpy.types.Context) -> bool:
-        return any(part.selected for part in scene_settings(context).mixture.parts)
+        return scene_settings(context).mixture.has_selected_parts()
 
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
@@ -71,7 +82,7 @@ class SILCAST_OT_move_mixture_parts(bpy.types.Operator):
     @classmethod
     @override
     def poll(cls, context: bpy.types.Context) -> bool:
-        return any(part.selected for part in scene_settings(context).mixture.parts)
+        return scene_settings(context).mixture.has_selected_parts()
 
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
@@ -107,14 +118,7 @@ class SILCAST_OT_select_mixture_part(bpy.types.Operator):
     def invoke(
         self, context: bpy.types.Context, event: bpy.types.Event
     ) -> OperatorReturn:
-        if event.shift and event.ctrl:
-            self.mode = "ADD_RANGE"
-        elif event.shift:
-            self.mode = "RANGE"
-        elif event.ctrl:
-            self.mode = "TOGGLE"
-        else:
-            self.mode = "REPLACE"
+        self.mode = _selection_mode_for(event)
         return self.execute(context)
 
     @override
