@@ -22,30 +22,30 @@ from ..properties.mixture import SiliconeCastingMixture, SiliconeCastingMixtureP
 from ..properties.settings import scene_settings
 from ._layout import draw_recipe_exchange, table_cells
 
-# Relative widths keep the whole table responsive while reserving most of the
-# flexible space for the editable part name. Selection and Enabled stay compact.
-_MIXTURE_COLUMN_WEIGHTS: Final = (
-    0.65,
-    1.2,
-    4.4,
-    1.55,
-    1.55,
-    1.55,
-    1.55,
-    1.55,
-    1.55,
+# Heading and relative width of each column. Relative widths keep the table
+# responsive while reserving most of the flexible space for the editable part
+# name; the selection and Enabled columns stay compact.
+_MIXTURE_COLUMNS: Final = (
+    ("#", 0.65),
+    ("Enabled", 1.2),
+    ("Name", 4.4),
+    ("Vol", 1.55),
+    ("W (g)", 1.55),
+    ("A Vol", 1.55),
+    ("B Vol", 1.55),
+    ("A W", 1.55),
+    ("B W", 1.55),
 )
+_MIXTURE_COLUMN_WEIGHTS: Final = tuple(weight for _, weight in _MIXTURE_COLUMNS)
+# Columns from "W (g)" onwards show values derived from the row's volume.
+_FIRST_DERIVED_COLUMN: Final = 4
 
 
 def _draw_mixture_header(layout: bpy.types.UILayout) -> None:
     """Draw headings for the editable and calculated table columns."""
     cells = table_cells(layout, _MIXTURE_COLUMN_WEIGHTS)
-    for cell, label in zip(
-        cells,
-        ("#", "Enabled", "Name", "Vol", "W (g)", "A Vol", "B Vol", "A W", "B W"),
-        strict=True,
-    ):
-        cell.label(text=label)
+    for cell, (heading, _) in zip(cells, _MIXTURE_COLUMNS, strict=True):
+        cell.label(text=heading)
 
 
 def _draw_breakdown(
@@ -63,6 +63,7 @@ def _draw_breakdown(
         format_grams(breakdown.b_weight_g),
     )
     for cell, text in zip(cells, values, strict=True):
+        # A disabled row greys out its derived values instead of hiding them.
         output = cell.row(align=True)
         output.enabled = enabled
         output.label(text=text)
@@ -70,7 +71,7 @@ def _draw_breakdown(
 
 def _draw_mixture_part(
     layout: bpy.types.UILayout,
-    props: SiliconeCastingMixture,
+    mixture: SiliconeCastingMixture,
     part: SiliconeCastingMixturePart,
     index: int,
 ) -> None:
@@ -86,12 +87,16 @@ def _draw_mixture_part(
     cells[2].prop(part, "part_name", text="")
     cells[3].prop(part, "volume_ml", text="")
 
-    _draw_breakdown(cells[4:], props.breakdown(part.volume_ml), enabled=part.enabled)
+    _draw_breakdown(
+        cells[_FIRST_DERIVED_COLUMN:],
+        mixture.breakdown(part.volume_ml),
+        enabled=part.enabled,
+    )
 
 
 def _draw_mixture_summary(
     layout: bpy.types.UILayout,
-    props: SiliconeCastingMixture,
+    mixture: SiliconeCastingMixture,
     label: str,
     volume_ml: float,
 ) -> None:
@@ -102,7 +107,7 @@ def _draw_mixture_summary(
     cells[2].label(text=label)
     cells[3].label(text=format_ml(volume_ml))
 
-    _draw_breakdown(cells[4:], props.breakdown(volume_ml))
+    _draw_breakdown(cells[_FIRST_DERIVED_COLUMN:], mixture.breakdown(volume_ml))
 
 
 def _filter_mixture_parts_by_name(
@@ -126,25 +131,21 @@ def _filter_mixture_parts_by_name(
 
 
 def _draw_mixture_settings(
-    layout: bpy.types.UILayout, props: SiliconeCastingMixture
+    layout: bpy.types.UILayout, mixture: SiliconeCastingMixture
 ) -> None:
     """Draw the density mode and the A:B weight ratio."""
-    settings = layout.box()
-    density = settings.row(align=True)
-    density.prop(props, "use_shared_density")
-    if props.use_shared_density:
-        density.prop(
-            props,
-            "density_a_g_per_ml",
-            text="Density (g/mL)",
-        )
+    box = layout.box()
+    density = box.row(align=True)
+    density.prop(mixture, "use_shared_density")
+    if mixture.use_shared_density:
+        density.prop(mixture, "density_a_g_per_ml", text="Density (g/mL)")
     else:
-        density.prop(props, "density_a_g_per_ml", text="Density A")
-        density.prop(props, "density_b_g_per_ml", text="Density B")
+        density.prop(mixture, "density_a_g_per_ml", text="Density A")
+        density.prop(mixture, "density_b_g_per_ml", text="Density B")
 
-    ratio = settings.row(align=True)
-    ratio.prop(props, "ratio_a", text="Ratio A")
-    ratio.prop(props, "ratio_b", text="Ratio B")
+    ratio = box.row(align=True)
+    ratio.prop(mixture, "ratio_a", text="Ratio A")
+    ratio.prop(mixture, "ratio_b", text="Ratio B")
 
 
 def _draw_mixture_controls(layout: bpy.types.UILayout, any_selected: bool) -> None:
@@ -194,9 +195,9 @@ class SILCAST_UL_mixture_parts(bpy.types.UIList):
         del context, data, icon, active_property, flt_flag
         if item is None or index is None:
             return
-        props = cast(SiliconeCastingMixture, active_data)
+        mixture = cast(SiliconeCastingMixture, active_data)
         part = cast(SiliconeCastingMixturePart, item)
-        _draw_mixture_part(layout, props, part, index)
+        _draw_mixture_part(layout, mixture, part, index)
 
     @override
     def filter_items(
@@ -237,9 +238,9 @@ class SILCAST_PT_mixture_calculator(bpy.types.Panel):
     def draw(self, context: bpy.types.Context) -> None:
         layout = self.layout
         assert layout is not None
-        props = scene_settings(context).mixture
+        mixture = scene_settings(context).mixture
         draw_recipe_exchange(layout, "MIXTURE")
-        _draw_mixture_settings(layout, props)
+        _draw_mixture_settings(layout, mixture)
         guidance = layout.row(align=True)
         guidance.label(text="Select row numbers with Click / Ctrl / Shift")
         guidance.label(text="Volumes: mL / Weights: g")
@@ -247,21 +248,20 @@ class SILCAST_PT_mixture_calculator(bpy.types.Panel):
         layout.template_list(
             SILCAST_UL_mixture_parts.bl_idname,
             "parts",
-            props,
+            mixture,
             "parts",
-            props,
+            mixture,
             "active_index",
             rows=6,
             maxrows=10,
         )
 
-        any_selected = any(part.selected for part in props.parts)
+        any_selected = mixture.has_selected_parts()
         _draw_mixture_controls(layout, any_selected)
 
         if any_selected:
-            selected_volume = props.total_volume(selected_only=True)
             layout.separator(factor=0.35)
-            _draw_mixture_summary(layout, props, "Selected", selected_volume)
-
-        total_volume = props.total_volume()
-        _draw_mixture_summary(layout, props, "Total", total_volume)
+            _draw_mixture_summary(
+                layout, mixture, "Selected", mixture.total_volume(selected_only=True)
+            )
+        _draw_mixture_summary(layout, mixture, "Total", mixture.total_volume())
