@@ -1,6 +1,6 @@
 """A Geometry Nodes modifier that cuts a mesh with a thin surface."""
 
-from typing import Final, cast
+from typing import Final, Literal, cast
 
 import bpy
 
@@ -58,36 +58,33 @@ class _SurfaceCutBuilder:
         items[1].description = "Slower solver for overlapping geometry"
         return switch
 
+    def _new_socket(
+        self, name: str, in_out: Literal["INPUT", "OUTPUT"], socket_type: str
+    ) -> bpy.types.NodeTreeInterfaceSocket:
+        interface = self._group.interface
+        assert interface is not None
+        return interface.new_socket(
+            name=name,
+            in_out=in_out,
+            socket_type=socket_type,  # pyright: ignore[reportArgumentType]
+        )
+
     def _create_interface(
         self,
         surface: bpy.types.Object,
         thickness: float,
         minimum_thickness: float,
     ) -> bpy.types.NodeTreeInterfaceSocketObject:
-        interface = self._group.interface
-        assert interface is not None
-        interface.new_socket(
-            name="Geometry",
-            in_out="INPUT",
-            socket_type="NodeSocketGeometry",  # pyright: ignore[reportArgumentType]
-        )
+        self._new_socket("Geometry", "INPUT", "NodeSocketGeometry")
         surface_socket = cast(
             bpy.types.NodeTreeInterfaceSocketObject,
-            interface.new_socket(
-                name="Cutting Surface",
-                in_out="INPUT",
-                socket_type="NodeSocketObject",  # pyright: ignore[reportArgumentType]
-            ),
+            self._new_socket("Cutting Surface", "INPUT", "NodeSocketObject"),
         )
         surface_socket.description = "Mesh surface to solidify and subtract"
         surface_socket.default_value = surface
         thickness_socket = cast(
             bpy.types.NodeTreeInterfaceSocketFloat,
-            interface.new_socket(
-                name="Thickness",
-                in_out="INPUT",
-                socket_type="NodeSocketFloat",  # pyright: ignore[reportArgumentType]
-            ),
+            self._new_socket("Thickness", "INPUT", "NodeSocketFloat"),
         )
         thickness_socket.description = "Thickness of the solidified cutting surface"
         thickness_socket.subtype = "DISTANCE"  # pyright: ignore[reportAttributeAccessIssue]
@@ -95,11 +92,7 @@ class _SurfaceCutBuilder:
         thickness_socket.default_value = thickness
         even_socket = cast(
             bpy.types.NodeTreeInterfaceSocketBool,
-            interface.new_socket(
-                name="Even Thickness",
-                in_out="INPUT",
-                socket_type="NodeSocketBool",  # pyright: ignore[reportArgumentType]
-            ),
+            self._new_socket("Even Thickness", "INPUT", "NodeSocketBool"),
         )
         even_socket.description = (
             "Compensate at corners to keep the requested cutter thickness"
@@ -107,21 +100,13 @@ class _SurfaceCutBuilder:
         even_socket.default_value = False
         solver_socket = cast(
             bpy.types.NodeTreeInterfaceSocketMenu,
-            interface.new_socket(
-                name="Solver",
-                in_out="INPUT",
-                socket_type="NodeSocketMenu",  # pyright: ignore[reportArgumentType]
-            ),
+            self._new_socket("Solver", "INPUT", "NodeSocketMenu"),
         )
         solver_socket.from_socket(
             self._solver_switch, _input(self._solver_switch, "Menu")
         )
         solver_socket.default_value = "Manifold"
-        interface.new_socket(
-            name="Geometry",
-            in_out="OUTPUT",
-            socket_type="NodeSocketGeometry",  # pyright: ignore[reportArgumentType]
-        )
+        self._new_socket("Geometry", "OUTPUT", "NodeSocketGeometry")
         return surface_socket
 
     def _source_geometry(self) -> bpy.types.NodeSocket:
@@ -314,6 +299,8 @@ class _SurfaceCutBuilder:
             target.modifiers.new(SURFACE_CUT_MODIFIER_NAME, "NODES"),
         )
         modifier.node_group = self._group
+        # Blender 5.2 exposes node inputs through ``properties``; 5.1 lacks it
+        # and stores them as ID properties keyed by the socket identifier.
         properties = getattr(modifier, "properties", None)
         if properties is None:
             modifier[self._surface_socket.identifier] = self._surface
