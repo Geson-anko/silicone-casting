@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import cast, override
+from typing import Final, NamedTuple, cast, override
 
 import bpy
 import gpu
@@ -19,11 +19,39 @@ from ..properties.settings import scene_settings
 from ._operator import OperatorReturn
 from .key_models import KeyPair, KeySettings
 
-_TOOL_ID = "silicone_casting.registration_keys"
+type Color = tuple[float, float, float, float]
+
+_TOOL_ID: Final = "silicone_casting.registration_keys"
+_SELECT_TOOL_ID: Final = "builtin.select_box"
+_PIN_COLOR: Final[Color] = (1.0, 0.5, 0.05, 1.0)
+_SOCKET_COLOR: Final[Color] = (0.2, 0.7, 1.0, 1.0)
+_HOVER_COLOR: Final[Color] = (0.3, 1.0, 0.35, 1.0)
+# A collapsed (e.g. zero-scaled) object has no invertible matrix to cast into.
+_MIN_PICK_DETERMINANT: Final = 1e-12
+# Lets a key whose surface coincides with the half's face still win the pick.
+_PICK_DEPTH_TOLERANCE: Final = 1e-5
+# Pointer travel, in region pixels, that turns a click on a key into a drag.
+_DRAG_THRESHOLD_PX: Final = 4
+
+# The running gesture, so the cursor preview can yield to it and unloading
+# the extension can remove its draw callback.
 _gesture: SILCAST_OT_place_key | None = None
 
 
+class _SurfaceHit(NamedTuple):
+    position: Vector
+    normal: Vector
+
+
+class _Pick(NamedTuple):
+    """The key under the cursor, if any, and the hit on the active half."""
+
+    key: KeyPair | None
+    hit: _SurfaceHit | None
+
+
 def _ray(context: bpy.types.Context, xy: tuple[float, float]) -> tuple[Vector, Vector]:
+    """Return the world-space view ray through region coordinates."""
     region = context.region
     view = context.region_data
     assert region is not None and isinstance(view, bpy.types.RegionView3D)
@@ -35,29 +63,43 @@ def _ray(context: bpy.types.Context, xy: tuple[float, float]) -> tuple[Vector, V
 
 def _object_hit(
     obj: bpy.types.Object, origin: Vector, direction: Vector
-) -> tuple[Vector, Vector] | None:
+) -> _SurfaceHit | None:
+    """Ray cast one object, returning the world-space hit and normal."""
     matrix = obj.matrix_world
-    if abs(matrix.to_3x3().determinant()) < 1e-12:
+    if abs(matrix.to_3x3().determinant()) < _MIN_PICK_DETERMINANT:
         return None
     inverse = matrix.inverted()
-    local_origin = inverse @ origin
-    local_direction = inverse.to_3x3() @ direction
-    hit, point, normal, _ = obj.ray_cast(local_origin, local_direction)
+    hit, point, normal, _ = obj.ray_cast(inverse @ origin, inverse.to_3x3() @ direction)
     if not hit:
         return None
-    return matrix @ point, (inverse.transposed().to_3x3() @ normal).normalized()
+    return _SurfaceHit(
+        matrix @ point, (inverse.transposed().to_3x3() @ normal).normalized()
+    )
 
 
-def _pick(
-    context: bpy.types.Context, xy: tuple[float, float]
-) -> tuple[KeyPair | None, tuple[Vector, Vector] | None]:
+def _pick(context: bpy.types.Context, xy: tuple[float, float]) -> _Pick:
+    """Find the key and the active-half face under region coordinates."""
     target = context.active_object
     if target is None or target.type != "MESH":
-        return None, None
+        return _Pick(None, None)
     origin, direction = _ray(context, xy)
     depsgraph = context.evaluated_depsgraph_get()
     hit = _object_hit(target.evaluated_get(depsgraph), origin, direction)
-    limit = (hit[0] - origin).length + 1e-5 if hit else float("inf")
+    max_distance = (
+        (hit.position - origin).length + _PICK_DEPTH_TOLERANCE if hit else float("inf")
+    )
+    key = _nearest_key(context, target, origin, direction, max_distance)
+    return _Pick(key, hit)
+
+
+def _nearest_key(
+    context: bpy.types.Context,
+    target: bpy.types.Object,
+    origin: Vector,
+    direction: Vector,
+    max_distance: float,
+) -> KeyPair | None:
+    """Return the closest pin of ``target`` hit within ``max_distance``."""
     nearest = None
     for obj in context.scene.objects:
         if obj.parent != target:
@@ -65,45 +107,52 @@ def _pick(
         pair = KeyPair.from_pin(obj)
         if pair is None:
             continue
-        candidate = _object_hit(obj, origin, direction)
-        if candidate is not None:
-            distance = (candidate[0] - origin).length
-            if distance <= limit:
-                nearest = pair
-                limit = distance
-    return nearest, hit
+        hit = _object_hit(obj, origin, direction)
+        if hit is None:
+            continue
+        distance = (hit.position - origin).length
+        if distance <= max_distance:
+            nearest = pair
+            max_distance = distance
+    return nearest
 
 
-def _surface(context: bpy.types.Context, target: bpy.types.Object) -> BVHTree:
-    # Snapshot the underlying half once at gesture start, so dragging never
-    # climbs an existing pin or follows the moving preview.
+def _surface_without_keys(
+    context: bpy.types.Context, target: bpy.types.Object
+) -> BVHTree:
+    """Snapshot the half with its key modifiers disabled.
+
+    Taken once at gesture start, so dragging never climbs an existing
+    pin or follows the moving preview.
+    """
     modifiers = [
-        m
-        for m in target.modifiers
-        if isinstance(m, bpy.types.BooleanModifier)
-        and m.object is not None
-        and KeyPair.from_pin(m.object) is not None
+        modifier
+        for modifier in target.modifiers
+        if isinstance(modifier, bpy.types.BooleanModifier)
+        and modifier.object is not None
+        and KeyPair.from_pin(modifier.object) is not None
     ]
-    states = [m.show_viewport for m in modifiers]
+    visibility = [modifier.show_viewport for modifier in modifiers]
     try:
-        for m in modifiers:
-            m.show_viewport = False
+        for modifier in modifiers:
+            modifier.show_viewport = False
         return SurfaceSnapshot.from_objects(
             (target,), context.evaluated_depsgraph_get()
         ).bvh
     finally:
-        for m, state in zip(modifiers, states, strict=True):
-            m.show_viewport = state
+        for modifier, visible in zip(modifiers, visibility, strict=True):
+            modifier.show_viewport = visible
 
 
-def _lines(
+def _draw_lines(
     context: bpy.types.Context,
     points: list[Vector],
     edges: Iterable[tuple[int, int]],
-    color: tuple[float, float, float, float],
+    color: Color,
     *,
     window_coordinates: bool = False,
 ) -> None:
+    """Draw world-space edges projected into the current region."""
     region, view = context.region, context.region_data
     if region is None or not isinstance(view, bpy.types.RegionView3D):
         return
@@ -112,52 +161,49 @@ def _lines(
     lines: list[tuple[float, float]] = []
     for a, b in edges:
         start, end = pixels[a], pixels[b]
+        # Points behind the view have no projection; skip their edges.
         if start is not None and end is not None:
             start, end = start + offset, end + offset
             lines.extend(((start.x, start.y), (end.x, end.y)))
-    if lines:
-        shader = gpu.shader.from_builtin("UNIFORM_COLOR")
-        batch = batch_for_shader(shader, "LINES", {"pos": lines})
-        shader.bind()
-        shader.uniform_float("color", color)
-        batch.draw(shader)
+    if not lines:
+        return
+    shader = gpu.shader.from_builtin("UNIFORM_COLOR")
+    batch = batch_for_shader(shader, "LINES", {"pos": lines})
+    shader.bind()
+    shader.uniform_float("color", color)
+    batch.draw(shader)
 
 
-def _ghost(
+def _draw_key_preview(
     context: bpy.types.Context,
     position: Vector,
     normal: Vector,
     *,
     window_coordinates: bool = False,
 ) -> None:
+    """Draw the sidebar's pin and socket as wireframes at a surface point."""
     settings = KeySettings.from_context(context)
     dimensions = settings.dimensions()
     matrix = settings.placement(position, normal)
-    for socket, color in ((False, (1.0, 0.5, 0.05, 1.0)), (True, (0.2, 0.7, 1.0, 1.0))):
-        vertices, faces = dimensions.geometry(socket=socket)
-        edges = {
-            (min(a, b), max(a, b))
-            for face in faces
-            for a, b in zip(face, face[1:] + face[:1])
-        }
-        _lines(
+    for socket, color in ((False, _PIN_COLOR), (True, _SOCKET_COLOR)):
+        geometry = dimensions.geometry(socket=socket)
+        _draw_lines(
             context,
-            [matrix @ Vector(v) for v in vertices],
-            edges,
+            [matrix @ Vector(vertex) for vertex in geometry.vertices],
+            geometry.edges(),
             color,
             window_coordinates=window_coordinates,
         )
 
 
-def _outline(
-    context: bpy.types.Context,
-    obj: bpy.types.Object,
-    color: tuple[float, float, float, float],
+def _draw_outline(
+    context: bpy.types.Context, obj: bpy.types.Object, color: Color
 ) -> None:
+    """Draw an existing operand's edges in window coordinates."""
     mesh = cast(bpy.types.Mesh, obj.data)
-    _lines(
+    _draw_lines(
         context,
-        [obj.matrix_world @ v.co for v in mesh.vertices],
+        [obj.matrix_world @ vertex.co for vertex in mesh.vertices],
         (cast(tuple[int, int], edge.vertices) for edge in mesh.edges),
         color,
         window_coordinates=True,
@@ -197,6 +243,7 @@ class SILCAST_WST_registration_keys(bpy.types.WorkSpaceTool):
     def draw_cursor(
         context: bpy.types.Context, _tool: bpy.types.WorkSpaceTool, xy: tuple[int, int]
     ) -> None:
+        """Highlight the key under the cursor or preview a new one."""
         if (
             _gesture is not None
             or context.region is None
@@ -207,18 +254,20 @@ class SILCAST_WST_registration_keys(bpy.types.WorkSpaceTool):
         # use region coordinates. Convert picking and drawing in opposite directions.
         mouse = (float(xy[0] - context.region.x), float(xy[1] - context.region.y))
         try:
-            key, hit = _pick(context, mouse)
+            hovered, hit = _pick(context, mouse)
             selected = KeyPair.from_pin(scene_settings(context).key_active)
             if (
                 selected is not None
-                and selected != key
+                and selected != hovered
                 and selected.pin.parent == context.active_object
             ):
-                _outline(context, selected.pin, (1.0, 0.5, 0.05, 1.0))
-            if key is not None:
-                _outline(context, key.pin, (0.3, 1.0, 0.35, 1.0))
+                _draw_outline(context, selected.pin, _PIN_COLOR)
+            if hovered is not None:
+                _draw_outline(context, hovered.pin, _HOVER_COLOR)
             elif hit is not None:
-                _ghost(context, *hit, window_coordinates=True)
+                _draw_key_preview(
+                    context, hit.position, hit.normal, window_coordinates=True
+                )
         except (ValueError, RuntimeError, ReferenceError):
             # No geometry or invalid dimensions: the click operator reports it.
             return
@@ -253,25 +302,29 @@ class SILCAST_OT_stop_key_placement(bpy.types.Operator):
 
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
-        bpy.ops.wm.tool_set_by_id(name="builtin.select_box")
+        bpy.ops.wm.tool_set_by_id(name=_SELECT_TOOL_ID)
         return {"FINISHED"}
 
 
 class SILCAST_OT_place_key(bpy.types.Operator):
     """Preview one click/drag gesture, then commit exactly one action."""
 
+    # The docstring doubles as the tooltip (there is no bl_description), so
+    # the gesture details live here: pressing on a key selects it and dragging
+    # moves it; pressing on the face adds a key where the button is released.
+
     bl_idname = "silicone_casting.place_key"
     bl_label = "Place / Move Key"
     bl_options = {"UNDO", "BLOCKING"}
 
-    _key_name: str
-    _press: Vector
-    _bvh: BVHTree
+    _picked_key_name: str
+    _press_xy: Vector
+    _surface: BVHTree
     _position: Vector
     _normal: Vector
-    _valid: bool
-    _moved: bool
-    _handle: object | None = None
+    _on_surface: bool
+    _dragged: bool
+    _draw_handle: object | None = None
     _area: bpy.types.Area | None = None
 
     @override
@@ -280,71 +333,33 @@ class SILCAST_OT_place_key(bpy.types.Operator):
     ) -> OperatorReturn:
         global _gesture
         if (
-            not SILCAST_OT_start_key_placement.poll(context)
+            not KeyPair.can_create(context)
             or context.region is None
             or context.region.type != "WINDOW"
         ):
             return {"CANCELLED"}
         target = context.active_object
         assert target is not None
-        self._press = Vector((event.mouse_region_x, event.mouse_region_y))
-        key, hit = _pick(context, (self._press.x, self._press.y))
-        if hit is None and key is None:
+        self._press_xy = Vector((event.mouse_region_x, event.mouse_region_y))
+        picked, hit = _pick(context, (self._press_xy.x, self._press_xy.y))
+        if hit is None and picked is None:
             return {"CANCELLED"}
-        self._key_name = key.pin.name if key is not None else ""
-        if key is not None:
-            key.select(context)
-        self._bvh = _surface(context, target)
+        self._picked_key_name = picked.pin.name if picked is not None else ""
+        if picked is not None:
+            picked.select(context)
+        self._surface = _surface_without_keys(context, target)
         self._position = Vector((0, 0, 0))
         self._normal = Vector((0, 0, 1))
-        self._valid = False
-        self._moved = False
+        self._on_surface = False
+        self._dragged = False
         self._area = context.area
-        self._update(context, event)
-        self._handle = bpy.types.SpaceView3D.draw_handler_add(
+        self._track_cursor(context, event)
+        self._draw_handle = bpy.types.SpaceView3D.draw_handler_add(
             self._draw, (), "WINDOW", "POST_PIXEL"
         )
         _gesture = self
         context.window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
-
-    def _update(self, context: bpy.types.Context, event: bpy.types.Event) -> None:
-        origin, direction = _ray(
-            context, (float(event.mouse_region_x), float(event.mouse_region_y))
-        )
-        point, normal, _, _ = self._bvh.ray_cast(origin, direction)
-        self._valid = point is not None and normal is not None
-        if point is not None and normal is not None:
-            self._position, self._normal = point, normal
-        if (
-            normal is not None
-            and context.active_object is not None
-            and context.active_object.matrix_world.to_3x3().determinant() < 0
-        ):
-            normal.negate()
-        if self._area is not None:
-            self._area.tag_redraw()
-
-    def _draw(self) -> None:
-        context = bpy.context
-        if context.area == self._area and self._valid:
-            try:
-                _ghost(context, self._position, self._normal)
-            except ValueError:
-                return
-
-    def _finish(self) -> None:
-        global _gesture
-        if self._handle is not None:
-            bpy.types.SpaceView3D.draw_handler_remove(self._handle, "WINDOW")
-            self._handle = None
-        _gesture = None
-        if self._area is not None:
-            self._area.tag_redraw()
-
-    @override
-    def cancel(self, context: bpy.types.Context) -> None:
-        self._finish()
 
     @override
     def modal(
@@ -354,24 +369,65 @@ class SILCAST_OT_place_key(bpy.types.Operator):
             self._finish()
             return {"CANCELLED"}
         if event.type == "MOUSEMOVE":
-            self._moved |= (
-                Vector((event.mouse_region_x, event.mouse_region_y)) - self._press
-            ).length > 4
-            self._update(context, event)
+            travel = (
+                Vector((event.mouse_region_x, event.mouse_region_y)) - self._press_xy
+            )
+            self._dragged |= travel.length > _DRAG_THRESHOLD_PX
+            self._track_cursor(context, event)
             return {"RUNNING_MODAL"}
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
             self._finish()
             return self._commit(context)
         return {"RUNNING_MODAL"}
 
+    @override
+    def cancel(self, context: bpy.types.Context) -> None:
+        self._finish()
+
+    def _track_cursor(self, context: bpy.types.Context, event: bpy.types.Event) -> None:
+        """Follow the cursor on the snapshot, keeping the last hit."""
+        origin, direction = _ray(
+            context, (float(event.mouse_region_x), float(event.mouse_region_y))
+        )
+        point, normal, _, _ = self._surface.ray_cast(origin, direction)
+        self._on_surface = point is not None and normal is not None
+        if point is not None and normal is not None:
+            # Mirrored halves reverse face winding, so snapshot normals point inward.
+            target = context.active_object
+            if target is not None and target.matrix_world.to_3x3().determinant() < 0:
+                normal.negate()
+            self._position, self._normal = point, normal
+        if self._area is not None:
+            self._area.tag_redraw()
+
+    def _draw(self) -> None:
+        context = bpy.context
+        if context.area != self._area or not self._on_surface:
+            return
+        try:
+            _draw_key_preview(context, self._position, self._normal)
+        except ValueError:
+            # Invalid sidebar dimensions: the commit reports them.
+            return
+
+    def _finish(self) -> None:
+        global _gesture
+        if self._draw_handle is not None:
+            bpy.types.SpaceView3D.draw_handler_remove(self._draw_handle, "WINDOW")
+            self._draw_handle = None
+        _gesture = None
+        if self._area is not None:
+            self._area.tag_redraw()
+
     def _commit(self, context: bpy.types.Context) -> OperatorReturn:
-        if self._key_name and not self._moved:
+        """Move the picked key, add a new one, or just keep the selection."""
+        if self._picked_key_name and not self._dragged:
             return {"FINISHED"}
-        if not self._valid:
+        if not self._on_surface:
             return {"CANCELLED"}
         try:
-            if self._key_name:
-                KeyPair.from_context(context, self._key_name).move(
+            if self._picked_key_name:
+                KeyPair.from_context(context, self._picked_key_name).move(
                     context, self._position, self._normal
                 )
             else:

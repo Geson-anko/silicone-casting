@@ -8,6 +8,16 @@ from ..properties.settings import scene_settings
 from ._operator import OperatorReturn, selected_meshes
 
 
+def _assign_material(obj: bpy.types.Object, material: bpy.types.Material) -> None:
+    """Show the material on one mesh object, leaving its other slots."""
+    mesh = cast(bpy.types.Mesh, obj.data)
+    if len(mesh.materials) == 0:
+        mesh.materials.append(material)
+    else:
+        # active_material honours an object-linked slot instead of editing the mesh.
+        obj.active_material = material
+
+
 class SILCAST_OT_add_color_profile(bpy.types.Operator):
     """Add and select a named color profile."""
 
@@ -128,10 +138,6 @@ class SILCAST_OT_apply_color_material(bpy.types.Operator):
         material = profile.ensure_preview_material()
         objects = selected_meshes(context)
         for obj in objects:
-            mesh = cast(bpy.types.Mesh, obj.data)
-            if len(mesh.materials) == 0:
-                mesh.materials.append(material)
-            else:
-                obj.active_material = material
+            _assign_material(obj, material)
         self.report({"INFO"}, f"Applied to {len(objects)} object(s)")
         return {"FINISHED"}

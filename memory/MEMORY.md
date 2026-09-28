@@ -13,10 +13,12 @@
 - [プロジェクトの目的](project_purpose.md) — シリコーン造形用の樹脂型を Blender で生成し 3D プリントする
 - [既存プロトタイプアドオン](project_prototype_addons.md) — repo 外にある mold_cut / mold_split。次フェーズの移植元
 - [format ゲートは untracked を見ない](project_format_gate_skips_untracked.md) — 新規ファイルは commit するまで違反が出ない。ローカル緑・CI 赤の原因
+- [GUI イベントスクリプトの回し方](knowledge_gui_event_scripts.md) — blender-test に含まれず自動終了しない。結果は $TMPDIR のファイルで判定。空気孔 undo の既知失敗
 - [Blender ジオメトリ API の実測事実](knowledge_blender_geometry_api_facts.md) — to_mesh / calc_volume / stale な matrix_world / ERROR report が RuntimeError になる件 / RNA イントロスペクション / パネル登録順
 
 ## feedback
 
+- [Opus スタイルへの書き直し](feedback_opus_style.md) — 公開面以外は破壊的に変えてよい。分解・副作用排除・理由付き定数・NamedTuple・折られない docstring 要約
 - [型とファクトリの構成](feedback_types_and_factories.md) — `type` 文、クラスが所有する生成・操作、責務ごとの分解を優先する
 
 - [寸法入力の単位型](feedback_distance_inputs.md) — 寸法・隙間は `(mm)` 固定数値ではなく DISTANCE / LENGTH を使う

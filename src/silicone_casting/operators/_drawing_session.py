@@ -3,7 +3,7 @@
 from collections.abc import Callable, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass
-from typing import Self, cast
+from typing import Final, Self, cast
 
 import bpy
 from bpy_extras import view3d_utils
@@ -11,6 +11,10 @@ from mathutils import Vector
 
 from . import _drawing_navigation
 from ._operator import OperatorReturn
+
+# Periodic events let the modal pick up sidebar edits (diameter, margin, input
+# mode) without waiting for the cursor to move over the viewport.
+_SETTINGS_POLL_INTERVAL_S: Final = 0.1
 
 
 @dataclass
@@ -37,8 +41,22 @@ class DrawingSession:
         *,
         draw: Callable[[], None] | None = None,
     ) -> Self:
-        """Acquire a complete drawing session, rolling back a failed
-        startup."""
+        """Acquire every viewport resource of a drawing, or none of them.
+
+        Args:
+            context: Context of the invoking operator; must be a single,
+                non-quad 3D view.
+            operator: The modal operator that receives the session's events.
+            name: Name of the temporary preview object and its mesh.
+            collections: Collections the preview is linked into.
+            draw: Optional ``POST_PIXEL`` overlay callback.
+
+        Returns:
+            A running session registered as the active drawing.
+
+        Raises:
+            ValueError: If the context is not a single 3D view.
+        """
         area, space = context.area, context.space_data
         if (
             area is None
@@ -67,7 +85,9 @@ class DrawingSession:
                 resources.callback(
                     bpy.types.SpaceView3D.draw_handler_remove, handle, "WINDOW"
                 )
-            timer = manager.event_timer_add(0.1, window=context.window)
+            timer = manager.event_timer_add(
+                _SETTINGS_POLL_INTERVAL_S, window=context.window
+            )
             resources.callback(manager.event_timer_remove, timer)
             session = cls(
                 area,

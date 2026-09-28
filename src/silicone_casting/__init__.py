@@ -1,6 +1,6 @@
 """Blender extension for producing resin molds for silicone casting."""
 
-from typing import cast
+from typing import Final, cast
 
 import bpy
 from bpy.app.handlers import persistent
@@ -11,26 +11,25 @@ from .properties.settings import SiliconeCastingProperties
 
 # Models precede their operators and views; each package owns its registration list.
 _CLASSES = (*properties.CLASSES, *operators.CLASSES, *ui.CLASSES)
-_SCENE_ATTR = "silicone_casting"
+_SCENE_ATTR: Final = "silicone_casting"
 
 
 @persistent
 def _reset_transient_selection_state(_unused: object) -> None:
-    """Reset UI selection anchors when a saved scene is opened."""
+    """Reset transient list-row selections when a saved file is opened."""
     for scene in bpy.data.scenes:
         settings = cast(
             SiliconeCastingProperties | None, getattr(scene, _SCENE_ATTR, None)
         )
-        if settings is not None:
-            settings.mixture.selection_anchor = -1
-            settings.mixture.active_index = -1
-            for profile in settings.color_profiles:
-                profile.colorant_active_index = -1
+        if settings is None:
+            continue
+        settings.mixture.clear_selection_cursor()
+        for profile in settings.color_profiles:
+            profile.colorant_active_index = -1
 
 
 def register() -> None:
-    """Register models, operations and panels, then expose the scene
-    settings."""
+    """Register classes, attach the scene settings and add the tool."""
     for cls in _CLASSES:
         bpy.utils.register_class(cls)
     setattr(

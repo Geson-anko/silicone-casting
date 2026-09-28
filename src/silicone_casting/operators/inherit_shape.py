@@ -10,11 +10,71 @@ from ._operator import OperatorReturn
 _OBJECT_SUFFIX: Final = ".inherit"
 _MODIFIER_NAME: Final = "Inherit Shape"
 
+type _Source = bpy.types.Object | bpy.types.Collection
+
 
 def _active_mesh(context: bpy.types.Context) -> bpy.types.Object | None:
     """Return the active mesh object, if this context has one."""
     active = context.active_object
     return active if active is not None and active.type == "MESH" else None
+
+
+def _resolve_source(context: bpy.types.Context, use_collection: bool) -> _Source:
+    """Return the object or collection whose shape is inherited.
+
+    Raises:
+        ValueError: With a user-facing message when the chosen source cannot
+            be inherited.
+    """
+    if not use_collection:
+        active = _active_mesh(context)
+        if active is None:
+            raise ValueError("Select an active mesh in Object Mode")
+        return active
+
+    collection = scene_settings(context).inherit_collection
+    objects = () if collection is None else tuple(collection.all_objects)
+    if collection is None or not any(obj.type == "MESH" for obj in objects):
+        raise ValueError("Choose a collection containing meshes")
+    if any(obj.type != "MESH" for obj in objects):
+        raise ValueError("The collection must contain only mesh objects")
+    if collection == context.scene.collection:
+        raise ValueError("Choose a collection below the scene root")
+    return collection
+
+
+def _create_inherited_object(
+    context: bpy.types.Context, source: _Source
+) -> bpy.types.Object:
+    """Link an empty mesh whose Boolean union reproduces *source*."""
+    name = f"{source.name}{_OBJECT_SUFFIX}"
+    inherited = bpy.data.objects.new(name, bpy.data.meshes.new(name))
+
+    modifier = inherited.modifiers.new(_MODIFIER_NAME, "BOOLEAN")
+    assert isinstance(modifier, bpy.types.BooleanModifier)
+    modifier.operation = "UNION"
+    modifier.solver = "EXACT"
+
+    if isinstance(source, bpy.types.Collection):
+        # Linked outside the operand: inside it, the result would feed its own
+        # Boolean and form a dependency cycle.
+        context.scene.collection.objects.link(inherited)
+        modifier.operand_type = "COLLECTION"
+        modifier.collection = source
+    else:
+        context.collection.objects.link(inherited)
+        inherited.matrix_world = source.matrix_world.copy()
+        modifier.operand_type = "OBJECT"
+        modifier.object = source
+    return inherited
+
+
+def _select_only(context: bpy.types.Context, obj: bpy.types.Object) -> None:
+    """Make *obj* the sole selected and active object."""
+    for selected in context.selected_objects or ():
+        selected.select_set(False)
+    obj.select_set(True)
+    context.view_layer.objects.active = obj
 
 
 class SILCAST_OT_inherit_shape(bpy.types.Operator):
@@ -41,74 +101,21 @@ class SILCAST_OT_inherit_shape(bpy.types.Operator):
     @classmethod
     @override
     def poll(cls, context: bpy.types.Context) -> bool:
-        props = scene_settings(context)
         return context.mode == "OBJECT" and (
-            _active_mesh(context) is not None or props.inherit_collection is not None
+            _active_mesh(context) is not None
+            or scene_settings(context).inherit_collection is not None
         )
-
-    def _source(
-        self, context: bpy.types.Context
-    ) -> bpy.types.Object | bpy.types.Collection | None:
-        """Resolve the chosen operand and report invalid collection
-        contents."""
-        props = scene_settings(context)
-        source: bpy.types.Object | bpy.types.Collection | None = (
-            props.inherit_collection if self.use_collection else _active_mesh(context)
-        )
-        if self.use_collection:
-            if not isinstance(source, bpy.types.Collection) or not any(
-                obj.type == "MESH" for obj in source.all_objects
-            ):
-                self.report({"ERROR"}, "Choose a collection containing meshes")
-                return None
-            if any(obj.type != "MESH" for obj in source.all_objects):
-                self.report({"ERROR"}, "The collection must contain only mesh objects")
-                return None
-            if source == context.scene.collection:
-                self.report({"ERROR"}, "Choose a collection below the scene root")
-                return None
-        if source is None:
-            self.report({"ERROR"}, "Select an active mesh in Object Mode")
-        return source
-
-    def _create_inherited_object(
-        self,
-        context: bpy.types.Context,
-        source: bpy.types.Object | bpy.types.Collection,
-    ) -> bpy.types.Object:
-        """Link an empty mesh outside its operand and configure its union."""
-        name = f"{source.name}{_OBJECT_SUFFIX}"
-        mesh = bpy.data.meshes.new(name)
-        inherited = bpy.data.objects.new(name, mesh)
-        if isinstance(source, bpy.types.Collection):
-            # Keep the result outside its operand to avoid a dependency cycle.
-            context.scene.collection.objects.link(inherited)
-        else:
-            context.collection.objects.link(inherited)
-            inherited.matrix_world = source.matrix_world.copy()
-
-        modifier = inherited.modifiers.new(_MODIFIER_NAME, "BOOLEAN")
-        assert isinstance(modifier, bpy.types.BooleanModifier)
-        modifier.operation = "UNION"
-        modifier.solver = "EXACT"
-        if isinstance(source, bpy.types.Collection):
-            modifier.operand_type = "COLLECTION"
-            modifier.collection = source
-        else:
-            modifier.operand_type = "OBJECT"
-            modifier.object = source
-        return inherited
 
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
-        source = self._source(context)
-        if source is None:
+        try:
+            source = _resolve_source(context, self.use_collection)
+        except ValueError as exc:
+            self.report({"ERROR"}, str(exc))
             return {"CANCELLED"}
-        inherited = self._create_inherited_object(context, source)
-        for selected in context.selected_objects or ():
-            selected.select_set(False)
-        inherited.select_set(True)
-        context.view_layer.objects.active = inherited
+
+        inherited = _create_inherited_object(context, source)
+        _select_only(context, inherited)
 
         self.report({"INFO"}, f"Inherited {source.name!r} as {inherited.name!r}")
         return {"FINISHED"}

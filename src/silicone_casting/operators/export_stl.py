@@ -8,24 +8,30 @@ from bpy.props import BoolProperty, StringProperty
 
 from ._operator import OperatorReturn, selected_meshes
 
-_STL_EXTENSION = ".stl"
-_EXPORT_SCALE = 1000.0
+_STL_EXTENSION: Final = ".stl"
+
+# STL has no unit field; slicers read its numbers as millimetres, so one metre
+# is written as 1000.
+_MM_PER_METRE: Final = 1000.0
+
+# Window-manager key remembering the folder of the last successful export.
 _LAST_EXPORT_DIRECTORY_KEY: Final = "_silicone_casting_last_stl_export_directory"
 
 
 def _default_filepath(context: bpy.types.Context) -> str:
-    """Build the initial STL path from the previous folder and mesh name."""
+    """Build the initial path from the last export folder and the mesh name.
+
+    The file is named after the active object when it is one of the
+    selected meshes, otherwise after the first selected mesh. Without an
+    earlier export the folder is the one holding the .blend file.
+    """
     meshes = selected_meshes(context)
     active = context.active_object
     source = active if active in meshes else meshes[0]
-    filename = f"{source.name}{_STL_EXTENSION}"
-    directory = cast(
-        str,
-        context.window_manager.get(_LAST_EXPORT_DIRECTORY_KEY, ""),
+    directory = cast(str, context.window_manager.get(_LAST_EXPORT_DIRECTORY_KEY, ""))
+    return os.path.join(
+        directory or bpy.path.abspath("//"), f"{source.name}{_STL_EXTENSION}"
     )
-    if not directory:
-        directory = bpy.path.abspath("//")
-    return os.path.join(directory, filename)
 
 
 class SILCAST_OT_export_stl(bpy.types.Operator):
@@ -71,13 +77,15 @@ class SILCAST_OT_export_stl(bpy.types.Operator):
 
     @override
     def check(self, context: bpy.types.Context) -> bool:
-        # The file browser must check the path that execute will actually write.
+        # The file browser's overwrite warning must check the path that
+        # execute() will actually write, so the extension is added here too.
+        # A bare folder path is left alone until the user types a name.
         filepath = self.filepath
         normalized = bpy.path.ensure_ext(filepath, _STL_EXTENSION)
-        if os.path.basename(filepath) and normalized != filepath:
-            self.filepath = normalized
-            return True
-        return False
+        if not os.path.basename(filepath) or normalized == filepath:
+            return False
+        self.filepath = normalized
+        return True
 
     @override
     def execute(self, context: bpy.types.Context) -> OperatorReturn:
@@ -100,12 +108,12 @@ class SILCAST_OT_export_stl(bpy.types.Operator):
             # Use the same metres-per-unit conversion as thickness and volume.
             # Blender ignores scale_length when its unit system is NONE, so
             # perform the conversion here and disable the exporter's own one.
-            global_scale=_EXPORT_SCALE * context.scene.unit_settings.scale_length,
+            global_scale=_MM_PER_METRE * context.scene.unit_settings.scale_length,
             use_scene_unit=False,
         )
-        if "FINISHED" in result:
-            context.window_manager[_LAST_EXPORT_DIRECTORY_KEY] = os.path.dirname(
-                filepath
-            )
-            self.report({"INFO"}, f"Exported STL: {os.path.basename(filepath)}")
+        if "FINISHED" not in result:
+            return result
+
+        context.window_manager[_LAST_EXPORT_DIRECTORY_KEY] = os.path.dirname(filepath)
+        self.report({"INFO"}, f"Exported STL: {os.path.basename(filepath)}")
         return result

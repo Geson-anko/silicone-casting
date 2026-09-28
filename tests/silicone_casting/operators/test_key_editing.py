@@ -1,5 +1,4 @@
-"""Persistent paired keys can be edited independently without baking mold
-halves."""
+"""Saved key pairs are edited independently without baking the mold halves."""
 
 from collections.abc import Iterator
 from math import atan, pi, sin, sqrt

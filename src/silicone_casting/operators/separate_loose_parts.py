@@ -29,15 +29,7 @@ class SILCAST_OT_separate_loose_parts(bpy.types.Operator):
         objects = selected_meshes(context)
         generated: list[bpy.types.Object] = []
         for source in objects:
-            mesh = _mesh_with_all_modifiers(context, source)
-
-            baked = bpy.data.objects.new(source.name, mesh)
-            baked.matrix_world = source.matrix_world.copy()
-            for collection in source.users_collection:
-                collection.objects.link(baked)
-            parts = separate_loose_parts(baked)
-            generated.extend(parts)
-
+            generated.extend(separate_loose_parts(_baked_copy(context, source)))
             source.select_set(False)
             source.hide_set(True)
 
@@ -53,11 +45,22 @@ class SILCAST_OT_separate_loose_parts(bpy.types.Operator):
         return {"FINISHED"}
 
 
+def _baked_copy(
+    context: bpy.types.Context, source: bpy.types.Object
+) -> bpy.types.Object:
+    """Link a modifier-baked copy of *source* beside the original."""
+    baked = bpy.data.objects.new(source.name, _mesh_with_all_modifiers(context, source))
+    baked.matrix_world = source.matrix_world.copy()
+    for collection in source.users_collection:
+        collection.objects.link(baked)
+    return baked
+
+
 def _mesh_with_all_modifiers(
     context: bpy.types.Context,
     source: bpy.types.Object,
 ) -> bpy.types.Mesh:
-    """Copy the evaluated shape while restoring the source stack exactly."""
+    """Copy the shape with all modifiers on, then restore visibility."""
     visibility = [(modifier, modifier.show_viewport) for modifier in source.modifiers]
     try:
         for modifier, _was_visible in visibility:
