@@ -199,6 +199,7 @@ LLM コーディングで陥りがちなミスを減らすための行動指針�
 - **Git 運用**（ブランチ / コミット命名、追跡対象を変更する前に読む）: `/git-ops`
 - **エージェントチーム**（設計 → 実装/テスト → 統合/レビュー → ドキュメント）: `/agent-team`
 - **並列化**: `/maximize-parallels`
+- **ドキュメント改善**（teacher が問題を先に作り、低性能な student が全問正解するまで書き直す）: `/doc-teacher-student`
 - **テスト方針**（2 階層テスト、golden mesh、書かないテスト）: `/testing-strategy`
 - **実機確認**（Blender MCP 経由で実 Blender を触る）: `/blender-mcp`
 - **PR 作成**: `/github-pr` / **main 取り込み**: `/merge-main` / **worktree 隔離**: `/do-on-worktree`
