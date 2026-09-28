@@ -1,10 +1,10 @@
 ---
 name: feedback_planning_doc_language
-description: 仕様書・計画・AGENTS.md・skill・Codex エージェント定義の本文は日本語で書く
+description: 仕様書・計画・CLAUDE.md・skill・Claude エージェント定義の本文は日本語で書く
 type: feedback
 ---
 
-仕様書・実装計画・`AGENTS.md`・`.agents/skills/*/SKILL.md`・`.codex/agents/*.toml` の指示本文、コミットメッセージの内容部、PR 本文、`README.ja.md`、`docs/` は **日本語** で書く。
+仕様書・実装計画・`CLAUDE.md`・`.claude/skills/*/SKILL.md`・`.claude/agents/*.md` の指示本文、コミットメッセージの内容部、PR 本文、`README.ja.md`、`docs/` は **日本語** で書く。
 
 コードそのもの（識別子・docstring・コード内コメント）と `README.md` は **英語**。skill / agent の frontmatter `description` も英語混じりでよい（トリガー語として日本語のフレーズも併記する）。
 

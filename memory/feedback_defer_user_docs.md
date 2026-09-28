@@ -8,6 +8,6 @@ type: feedback
 
 **Why:** 2026-08-14 のスケルトン構築時、README（英日 2 本）・`CONTRIBUTING.md`・`docs/usage.md`・`docs/RELEASE.md` を書いたところ「流石に readme や docs はまだ要らない、空っぽで OK」と差し戻された。機能が固まっていない段階のドキュメントは、実装が進むたびに書き直しが発生してコストだけが乗る。
 
-**How to apply:** 開発者・エージェント向けの運用知識は `AGENTS.md` と `.agents/skills/` に置く（こちらは常に必要）。CI が実際に読む `CHANGELOG.md` は機能インフラなので維持する。ユーザー向けの説明が要るタイミングは、機能が実際に使える状態になってからユーザーが判断する。
+**How to apply:** 開発者・エージェント向けの運用知識は `CLAUDE.md` と `.claude/skills/` に置く（こちらは常に必要）。CI が実際に読む `CHANGELOG.md` は機能インフラなので維持する。ユーザー向けの説明が要るタイミングは、機能が実際に使える状態になってからユーザーが判断する。
 
 関連: [[feedback_planning_doc_language]]

@@ -10,4 +10,4 @@ type: project
 
 **How to apply:** 機能の良し悪しは「3D プリントして実際に注型できるか」で判断する。watertight であること、抜き勾配があること、型が分割・脱型できることが、コードの綺麗さより優先する。
 
-2026-08-14 に空リポジトリからスケルトン（現在の `AGENTS.md` / Codex agents / skills / memory / ツーリング / CI / Extension 足場 / 最小オペレータ）を構築。造形機能の本体はこれから、`$agent-team` フローに載せて実装する。
+2026-08-14 に空リポジトリからスケルトン（現在の `CLAUDE.md` / Claude agents / skills / memory / ツーリング / CI / Extension 足場 / 最小オペレータ）を構築。造形機能の本体はこれから、`/agent-team` フローに載せて実装する。

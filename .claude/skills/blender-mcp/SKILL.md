@@ -1,11 +1,11 @@
 ---
 name: blender-mcp
-description: "Blender MCP 経由で実 Blender を触りながら機能を確かめる手順。just dev で GUI 起動 + MCP サーバー起動、Codex の .codex/config.toml と BlenderMCP アドオンのセットアップ、コード変更のたびに just dev を再実行する必要、同時 1 インスタンス制約、自動テストとの使い分け。Triggers: 'just dev', 'blender mcp', 'Blender で確認', '実機で見たい', '実際に動かして', 'Blender を起動', 'スクリーンショット', 'ビューポート', '目視で確認', 'UI を確認'."
+description: "Blender MCP 経由で実 Blender を触りながら機能を確かめる手順。just dev で GUI 起動 + MCP サーバー起動、MCP のセットアップ (.mcp.json / BlenderMCP アドオン)、コード変更のたびに just dev を再実行する必要、同時 1 インスタンス制約、自動テストとの使い分け。Triggers: 'just dev', 'blender mcp', 'Blender で確認', '実機で見たい', '実際に動かして', 'Blender を起動', 'スクリーンショット', 'ビューポート', '目視で確認', 'UI を確認'."
 ---
 
 # Blender MCP で実機を触る
 
-自動テスト（[$testing-strategy](../testing-strategy/SKILL.md)）が担保できないもの — **UI の見た目、操作感、生成ジオメトリの視覚的な妥当性** — を確かめるための手順。
+自動テスト（[/testing-strategy](../testing-strategy/SKILL.md)）が担保できないもの — **UI の見た目、操作感、生成ジオメトリの視覚的な妥当性** — を確かめるための手順。
 
 ______________________________________________________________________
 
@@ -28,16 +28,13 @@ ______________________________________________________________________
 
 ### 1. MCP サーバー（repo 側）
 
-[.codex/config.toml](../../../.codex/config.toml) にコミット済み:
+[.mcp.json](../../../.mcp.json) にコミット済み:
 
-```toml
-[mcp_servers.blender]
-command = "uvx"
-args = ["blender-mcp"]
-enabled = true
+```json
+{ "mcpServers": { "blender": { "type": "stdio", "command": "uvx", "args": ["blender-mcp"], "env": {} } } }
 ```
 
-trusted project では Codex がこの設定を読み、Blender MCP サーバーを有効化する。MCP ツールの実行は設定どおり approval 対象になる。`uvx` が PATH に必要（`uv` を入れてあれば入っている）。
+`.claude/settings.json` の `enabledMcpjsonServers: ["blender"]` により、サーバー自体は承認プロンプトなしで有効になる。個々の MCP ツール呼び出しは allow に入れていないので、実行時に承認を求められる。`uvx` が PATH に必要（`uv` を入れてあれば入っている）。
 
 ### 2. BlenderMCP アドオン（Blender 側 / マシンごとに 1 回）
 
@@ -51,7 +48,7 @@ trusted project では Codex がこの設定を読み、Blender MCP サーバー
 
 `just dev` が Blender を GUI 起動し、BlenderMCP アドオンを有効化して MCP サーバーまで立ち上げる（[tools/launch_dev.py](../../../tools/launch_dev.py)）。**N パネルにある BlenderMCP の接続ボタンを手で押す必要はない。**
 
-MCP は background モードでは使えないので、`just dev` は必ず GUI で起動する。Codex 側は `.codex/config.toml` 反映のため一度再起動しておくこと。
+MCP は background モードでは使えないので、`just dev` は必ず GUI で起動する。Claude Code 側は `.mcp.json` 反映のため一度再起動しておくこと。
 
 ______________________________________________________________________
 
@@ -65,7 +62,7 @@ just dev
 
 **コードを変えたら `just dev` を再実行する。** Blender は起動中に差し替えた extension のモジュールを再読込しないため、Blender を立ち上げ直さないと古いコードのまま動く。ここを飛ばして「変更が反映されない」と悩むのが最も多い失敗。
 
-`just dev` は Blender が終了するまでブロックするので、**Codex から実行するときは継続中のコマンドセッションとして起動する**（同期完了を待つと MCP サーバーを操作できない）。
+`just dev` は Blender が終了するまでブロックするので、**Claude から実行するときは Bash の `run_in_background` で走らせる**（そうしないとセッションが固まるうえ、MCP サーバーも操作できない）。
 
 `just dev` はシーンにもウィンドウレイアウトにもユーザー設定にも触らない。素の Blender にアドオンが載っているだけの状態で立ち上がるので、パネルは **N** キーでサイドバーを開いて **Silicone Casting** タブを選ぶ。
 
@@ -81,7 +78,7 @@ ______________________________________________________________________
 
 ## 制約と注意
 
-- **MCP サーバーは同時 1 インスタンスのみ**。複数の Codex セッション / worktree から同時に使わない（[$do-on-worktree](../do-on-worktree/SKILL.md) の共有 state の項）
+- **MCP サーバーは同時 1 インスタンスのみ**。複数の Claude セッション / worktree から同時に使わない（[/do-on-worktree](../do-on-worktree/SKILL.md) の共有 state の項）
 - **`just blender-test` と同時に使わない**。tier 2 は `extension install-file` で Blender のユーザー設定を書き換えるため、MCP 接続中の Blender と食い違う
 - **MCP 経由でシーンを壊しても構わない前提で使う**。保存したい作業ファイルを開いた状態で実験しない
 - MCP から実行した Python は **Blender のユーザー設定やシーンを永続的に変えうる**。破壊的な操作をする前に、何が起きるかを一言説明してからにする
@@ -93,7 +90,7 @@ ______________________________________________________________________
 
 | 症状                           | 原因と対処                                                                                                          |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| MCP ツールが見えない           | Codex を再起動する。`.codex/config.toml` に `[mcp_servers.blender]` があるか、project が trusted か確認             |
+| MCP ツールが見えない           | Claude Code を再起動する。`.mcp.json` が repo ルートにあるか、`/mcp` で `blender` が connected か確認               |
 | MCP サーバーが立たない         | `just dev` のログに `[just dev] WARNING:` が出ていないか。BlenderMCP アドオン未導入ならそこに指示が出る             |
 | ポートが埋まっている           | 他の Blender / MCP インスタンスが残っている。`lsof -nP -iTCP:9876 -sTCP:LISTEN` で確認して落とす                    |
 | コードを変えたのに反映されない | `just dev` を **再実行**したか（Blender は起動中に extension を再読込しない）                                       |

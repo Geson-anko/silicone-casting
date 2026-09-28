@@ -67,7 +67,7 @@ blender-test: install
 
 # For trying the add-on by hand. Blender does not reload extension modules in
 # place, so re-run this after every code change. The BlenderMCP server is
-# started too, so Codex can inspect the same session while you work.
+# started too, so Claude can inspect the same session while you work.
 # This blocks until Blender exits.
 [doc("Launch Blender with the add-on loaded, plus the MCP server")]
 dev: install
