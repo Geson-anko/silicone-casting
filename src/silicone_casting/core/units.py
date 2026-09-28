@@ -28,6 +28,22 @@ def mm_to_units(mm: float, scale_length: float) -> float:
     return mm / 1000 / scale_length
 
 
+def units_to_mm(units: float, scale_length: float) -> float:
+    """Convert a length in Blender units to millimetres.
+
+    The inverse of :func:`mm_to_units`.
+
+    Args:
+        units: Length to convert, in Blender units.
+        scale_length: Metres represented by one Blender unit, taken from
+            ``scene.unit_settings.scale_length``.
+
+    Returns:
+        The same length expressed in millimetres.
+    """
+    return units * scale_length * 1000
+
+
 def cubic_units_to_ml(volume: float, scale_length: float) -> float:
     """Convert a volume in cubic Blender units to millilitres.
 

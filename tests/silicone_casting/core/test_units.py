@@ -20,6 +20,7 @@ from silicone_casting.core.units import (
     format_grams,
     format_ml,
     mm_to_units,
+    units_to_mm,
 )
 
 
@@ -48,6 +49,24 @@ class TestMmToUnits:
 
     def test_zero_millimetres_is_zero_units(self) -> None:
         assert mm_to_units(0.0, 1.0) == 0.0
+
+
+class TestUnitsToMm:
+    def test_three_thousandths_of_a_unit_is_three_millimetres_by_default(
+        self,
+    ) -> None:
+        assert units_to_mm(0.003, 1.0) == pytest.approx(3.0, rel=1e-12)
+
+    def test_three_units_is_three_millimetres_when_a_unit_is_a_millimetre(
+        self,
+    ) -> None:
+        assert units_to_mm(3.0, 0.001) == pytest.approx(3.0, rel=1e-12)
+
+    @pytest.mark.parametrize("scale_length", [1.0, 0.001, 0.01, 2.5])
+    def test_it_inverts_mm_to_units(self, scale_length: float) -> None:
+        assert units_to_mm(mm_to_units(4.2, scale_length), scale_length) == (
+            pytest.approx(4.2, rel=1e-12)
+        )
 
 
 #: A cubic metre is (100 cm) ** 3, so this is what one cubic Blender unit

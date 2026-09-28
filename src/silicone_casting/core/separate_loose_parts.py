@@ -31,11 +31,7 @@ def _vertex_components(mesh: bpy.types.Mesh) -> tuple[frozenset[int], ...]:
                     continue
                 seen.add(vertex.index)
                 component.add(vertex.index)
-                stack.extend(
-                    edge.other_vert(vertex)
-                    for edge in vertex.link_edges
-                    if edge.other_vert(vertex).index not in seen
-                )
+                stack.extend(edge.other_vert(vertex) for edge in vertex.link_edges)
             components.append(frozenset(component))
         return tuple(components)
     finally:
@@ -94,6 +90,7 @@ def separate_loose_parts(
             _copy_component(source, component) for component in components
         )
     except Exception:
+        # Cleanup only: whatever failed, drop the partial copies and re-raise.
         for mesh in part_meshes:
             if mesh.users == 0:
                 bpy.data.meshes.remove(mesh)

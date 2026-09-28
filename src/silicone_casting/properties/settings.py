@@ -1,7 +1,7 @@
 """Typed scene settings and ownership of mixture and color profiles."""
 
 from math import atan, pi, tan
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Final, Literal, cast
 
 import bpy
 from bpy.props import (
@@ -13,6 +13,7 @@ from bpy.props import (
     PointerProperty,
 )
 
+from ..core.registration_keys import MAX_TAPER
 from ..core.solidify import MIN_THICKNESS_MM
 from ..core.surface_cut import MIN_SURFACE_CUT_THICKNESS_MM
 from ._distance import distance_property
@@ -21,69 +22,35 @@ from .mixture import SiliconeCastingMixture
 
 type BooleanSolver = Literal["MANIFOLD", "EXACT", "FLOAT"]
 
-_BOOLEAN_SOLVERS = (
-    (
-        "MANIFOLD",
-        "Manifold",
-        "Fastest solver for manifold meshes",
-    ),
-    (
-        "EXACT",
-        "Exact",
-        "Best results for overlapping and coplanar geometry",
-    ),
-    (
-        "FLOAT",
-        "Float",
-        "Simple fast solver without overlapping geometry support",
-    ),
+_BOOLEAN_SOLVERS: Final = (
+    ("MANIFOLD", "Manifold", "Fastest solver for manifold meshes"),
+    ("EXACT", "Exact", "Best results for overlapping and coplanar geometry"),
+    ("FLOAT", "Float", "Simple fast solver without overlapping geometry support"),
 )
+
+# The taper angle stops just short of 90 degrees, where its tangent diverges.
+_MAX_KEY_TAPER_ANGLE: Final = pi / 2 - 0.0001
 
 
 class SiliconeCastingProperties(bpy.types.PropertyGroup):
-    """Processing settings and saved recipes stored on
-    ``Scene.silicone_casting``."""
+    """Settings and saved recipes stored on ``Scene.silicone_casting``."""
 
-    def active_color_profile(self) -> SiliconeCastingColorProfile | None:
-        """Return the selected profile when its row still exists."""
-        index = self.color_profile_active_index
-        return (
-            self.color_profiles[index]
-            if 0 <= index < len(self.color_profiles)
-            else None
-        )
-
-    def add_color_profile(self) -> SiliconeCastingColorProfile:
-        """Append a default named profile, select it, and create its
-        preview."""
-        profile = self.color_profiles.add()
-        profile.profile_name = f"Profile {len(self.color_profiles)}"
-        self.color_profile_active_index = len(self.color_profiles) - 1
-        profile.ensure_preview_material()
-        return profile
-
-    def remove_active_color_profile(self) -> bool:
-        """Remove the selected profile while retaining its applied material."""
-        if self.active_color_profile() is None:
-            return False
-        index = self.color_profile_active_index
-        self.color_profiles.remove(index)
-        self.color_profile_active_index = min(index, len(self.color_profiles) - 1)
-        profile = self.active_color_profile()
-        if profile is not None:
-            profile.ensure_preview_material()
-        return True
+    # RNA callbacks are defined ahead of the declarations that reference them,
+    # since the class body is evaluated top to bottom.
 
     def _mesh_object_poll(self, obj: bpy.types.Object) -> bool:
         """Only offer mesh objects in operand and socket pickers."""
         return obj.type == "MESH"
 
     def _get_key_taper_angle(self) -> float:
+        """Derive the sidewall angle from tip reduction and protrusion."""
+        # The tip radius shrinks by width * taper / 2 over the protrusion height.
         return atan(self.key_width_mm * self.key_taper / (2 * self.key_height_mm))
 
     def _set_key_taper_angle(self, value: float) -> None:
+        """Store the tip reduction that yields *value*, clamped."""
         self.key_taper = min(
-            0.9, 2 * self.key_height_mm * tan(value) / self.key_width_mm
+            MAX_TAPER, 2 * self.key_height_mm * tan(value) / self.key_width_mm
         )
 
     if TYPE_CHECKING:
@@ -256,7 +223,7 @@ class SiliconeCastingProperties(bpy.types.PropertyGroup):
             subtype="FACTOR",
             default=0.2,
             min=0.0,
-            max=0.9,
+            max=MAX_TAPER,
         )
 
         key_taper_angle: FloatProperty(
@@ -269,7 +236,7 @@ class SiliconeCastingProperties(bpy.types.PropertyGroup):
             subtype="ANGLE",
             unit="ROTATION",
             min=0.0,
-            max=pi / 2 - 0.0001,
+            max=_MAX_KEY_TAPER_ANGLE,
             precision=2,
             get=_get_key_taper_angle,
             set=_set_key_taper_angle,
@@ -284,7 +251,10 @@ class SiliconeCastingProperties(bpy.types.PropertyGroup):
         key_align_normal: BoolProperty(
             name="Perpendicular to Face",
             default=True,
-            description="Align with the nearest face normal; disable to use the selected world axis",
+            description=(
+                "Align with the nearest face normal; "
+                "disable to use the selected world axis"
+            ),
         )
 
         key_flip: BoolProperty(
@@ -398,8 +368,45 @@ class SiliconeCastingProperties(bpy.types.PropertyGroup):
 
         mixture: PointerProperty(type=SiliconeCastingMixture)
 
+    def active_color_profile(self) -> SiliconeCastingColorProfile | None:
+        """Return the selected profile, or ``None`` if there is none."""
+        index = self.color_profile_active_index
+        if 0 <= index < len(self.color_profiles):
+            return self.color_profiles[index]
+        return None
+
+    def add_color_profile(self) -> SiliconeCastingColorProfile:
+        """Append a default-named profile, select it and create its preview."""
+        profile = self.color_profiles.add()
+        profile.profile_name = f"Profile {len(self.color_profiles)}"
+        self.color_profile_active_index = len(self.color_profiles) - 1
+        profile.ensure_preview_material()
+        return profile
+
+    def remove_active_color_profile(self) -> bool:
+        """Remove the selected profile while retaining its applied material.
+
+        Returns:
+            ``False`` when no profile was selected, ``True`` otherwise.
+        """
+        if self.active_color_profile() is None:
+            return False
+        index = self.color_profile_active_index
+        self.color_profiles.remove(index)
+        self.color_profile_active_index = min(index, len(self.color_profiles) - 1)
+        profile = self.active_color_profile()
+        if profile is not None:
+            profile.ensure_preview_material()
+        return True
+
 
 def scene_settings(context: bpy.types.Context) -> SiliconeCastingProperties:
-    """Read the registered scene property group at the Blender context
-    boundary."""
+    """Return the add-on settings of the context's scene.
+
+    Args:
+        context: Blender context whose scene carries ``Scene.silicone_casting``.
+
+    Returns:
+        The registered property group, typed for the rest of the add-on.
+    """
     return cast(SiliconeCastingProperties, context.scene.silicone_casting)
