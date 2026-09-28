@@ -1,7 +1,7 @@
 """Color profile RNA types and their synchronized derived values."""
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import bpy
 from bpy.props import (
@@ -15,6 +15,7 @@ from bpy.props import (
 )
 
 from ..core.color_mixing import (
+    HSL,
     RGB,
     CalibratedColorant,
     SimulatedSiliconeAppearance,
@@ -28,19 +29,24 @@ from ._material import MATERIAL_PREFIX, configure_material
 if TYPE_CHECKING:
     from .settings import SiliconeCastingProperties
 
-_MIN_COLORING_VOLUME_ML = 0.001
-_MIN_CALIBRATION_DROPS_PER_ML = 0.001
-_CALIBRATION_HUE_KEY = "_calibration_hue_degrees"
-_CALIBRATION_LIGHTNESS_KEY = "_calibration_lightness_percent"
-_COLOR_SYNC_TOLERANCE = 1e-7
+_MIN_COLORING_VOLUME_ML: Final = 0.001
+_MIN_CALIBRATION_DROPS_PER_ML: Final = 0.001
+_DEFAULT_BASE_VOLUME_ML: Final = 100.0
+# Shares the RNA property's own storage key so volumes in existing blend files
+# still load.
+_BASE_VOLUME_KEY: Final = "base_volume_ml"
+# HSL is saved beside the color because black and white lose their hue in RGB.
+_CALIBRATION_HUE_KEY: Final = "_calibration_hue_degrees"
+_CALIBRATION_LIGHTNESS_KEY: Final = "_calibration_lightness_percent"
+# Differences below this in a channel or in saturation are float round-off.
+_COLOR_SYNC_TOLERANCE: Final = 1e-7
 
 
 class SiliconeCastingColorant(bpy.types.PropertyGroup):
     """One calibrated dye dose inside a named color profile."""
 
     def calibrated(self) -> CalibratedColorant:
-        """Read this RNA row as an immutable input to the mixing
-        calculation."""
+        """Read this row as an immutable input to the mixing calculation."""
         return CalibratedColorant(
             calibration_color=self._calibration_rgb(),
             calibration_drops_per_ml=self.calibration_drops_per_ml,
@@ -53,40 +59,54 @@ class SiliconeCastingColorant(bpy.types.PropertyGroup):
         color = self.calibration_color
         return color[0], color[1], color[2]
 
-    def _stored_float(self, key: str, fallback: float) -> float:
+    def _stored_float(self, key: str) -> float | None:
         """Read one optional ID-property-backed HSL value."""
         value = self.get(key)
-        return float(value) if isinstance(value, int | float) else fallback
+        return float(value) if isinstance(value, int | float) else None
 
-    def _derived_calibration_hsl(self) -> tuple[float, float]:
-        """Derive hue and lightness from an older saved calibration color."""
-        hue, _saturation, lightness = linear_rgb_to_hsl(self._calibration_rgb())
-        return hue, lightness * 100.0
+    def _derived_hsl(self) -> HSL:
+        """Derive HSL from the calibration color, for rows saved without it."""
+        return linear_rgb_to_hsl(self._calibration_rgb())
+
+    def _owning_profile(self) -> "SiliconeCastingColorProfile | None":
+        """Find the profile whose collection contains this colorant."""
+        scene = cast(bpy.types.Scene, self.id_data)
+        settings = cast("SiliconeCastingProperties", getattr(scene, "silicone_casting"))
+        pointer = self.as_pointer()
+        for profile in settings.color_profiles:
+            if any(item.as_pointer() == pointer for item in profile.colorants):
+                return profile
+        return None
+
+    def _rebuild_calibration_color(self, hue: float, lightness_percent: float) -> None:
+        """Assign the saturated color; its update callback normalizes it."""
+        self.calibration_color = saturated_hsl_to_linear_rgb(
+            hue, lightness_percent / 100.0
+        )
 
     def _get_calibration_hue(self) -> float:
-        """Return saved hue, deriving it for colorants from older blend
-        files."""
-        derived_hue, _derived_lightness = self._derived_calibration_hsl()
-        return self._stored_float(_CALIBRATION_HUE_KEY, derived_hue)
+        """Return the saved hue, deriving it for older blend files."""
+        stored = self._stored_float(_CALIBRATION_HUE_KEY)
+        return stored if stored is not None else self._derived_hsl().hue_degrees
 
     def _set_calibration_hue(self, value: float) -> None:
         """Save hue and rebuild the saturated calibration color."""
         hue = value % 360.0
-        lightness = self._get_calibration_lightness()
+        lightness_percent = self._get_calibration_lightness()
         self[_CALIBRATION_HUE_KEY] = hue
-        self.calibration_color = saturated_hsl_to_linear_rgb(hue, lightness / 100.0)
+        self._rebuild_calibration_color(hue, lightness_percent)
 
     def _get_calibration_lightness(self) -> float:
-        """Return saved lightness, deriving it for older blend files."""
-        _derived_hue, derived_lightness = self._derived_calibration_hsl()
-        return self._stored_float(_CALIBRATION_LIGHTNESS_KEY, derived_lightness)
+        """Return the saved lightness, deriving it for older blend files."""
+        stored = self._stored_float(_CALIBRATION_LIGHTNESS_KEY)
+        return stored if stored is not None else self._derived_hsl().lightness * 100.0
 
     def _set_calibration_lightness(self, value: float) -> None:
         """Save lightness and rebuild the saturated calibration color."""
         hue = self._get_calibration_hue()
-        lightness = min(max(value, 0.0), 100.0)
-        self[_CALIBRATION_LIGHTNESS_KEY] = lightness
-        self.calibration_color = saturated_hsl_to_linear_rgb(hue, lightness / 100.0)
+        lightness_percent = min(max(value, 0.0), 100.0)
+        self[_CALIBRATION_LIGHTNESS_KEY] = lightness_percent
+        self._rebuild_calibration_color(hue, lightness_percent)
 
     def _get_calibration_hex(self) -> str:
         """Return the picker color as conventional sRGB ``#RRGGBB`` text."""
@@ -101,22 +121,19 @@ class SiliconeCastingColorant(bpy.types.PropertyGroup):
         self.calibration_color = color
 
     def _update_colorant(self, _context: bpy.types.Context) -> None:
-        """Find this colorant's owning profile and refresh only that
-        material."""
-        scene = cast(bpy.types.Scene, self.id_data)
-        settings = cast("SiliconeCastingProperties", getattr(scene, "silicone_casting"))
-        pointer = self.as_pointer()
-        for profile in settings.color_profiles:
-            if any(item.as_pointer() == pointer for item in profile.colorants):
-                profile.update_preview_material()
-                return
+        """Refresh only the material of the profile that owns this colorant."""
+        profile = self._owning_profile()
+        if profile is not None:
+            profile.update_preview_material()
 
     def _update_calibration_color(self, context: bpy.types.Context) -> None:
         """Normalize picker input to saturated HSL and refresh its material."""
         color = self._calibration_rgb()
         hue, saturation, lightness = linear_rgb_to_hsl(color)
         if saturation <= _COLOR_SYNC_TOLERANCE:
-            hue = self._stored_float(_CALIBRATION_HUE_KEY, hue)
+            # Black and white carry no hue; keep the one the user last chose.
+            stored_hue = self._stored_float(_CALIBRATION_HUE_KEY)
+            hue = stored_hue if stored_hue is not None else hue
         normalized = saturated_hsl_to_linear_rgb(hue, lightness)
         self[_CALIBRATION_HUE_KEY] = hue
         self[_CALIBRATION_LIGHTNESS_KEY] = lightness * 100.0
@@ -124,6 +141,7 @@ class SiliconeCastingColorant(bpy.types.PropertyGroup):
             abs(actual - expected) > _COLOR_SYNC_TOLERANCE
             for actual, expected in zip(color, normalized, strict=True)
         ):
+            # Reassigning re-enters this callback, whose second pass refreshes.
             self.calibration_color = normalized
             return
         self._update_colorant(context)
@@ -239,11 +257,9 @@ class SiliconeCastingColorProfile(bpy.types.PropertyGroup):
     """A named silicone base, calibrated colorants, and preview material."""
 
     def appearance(self) -> SimulatedSiliconeAppearance:
-        """Calculate this profile's color and transparency from its saved
-        inputs."""
-        base = self.base_color
+        """Calculate this profile's color and transparency from its inputs."""
         return SimulatedSiliconeAppearance.from_mixture(
-            (base[0], base[1], base[2]),
+            self._base_rgb(),
             self.base_volume_ml,
             self.transparency,
             (colorant.calibrated() for colorant in self.colorants),
@@ -283,30 +299,34 @@ class SiliconeCastingColorProfile(bpy.types.PropertyGroup):
         if material is not None:
             configure_material(material, self.profile_name, self.appearance())
 
+    def _base_rgb(self) -> RGB:
+        """Read the base color from its RNA vector."""
+        base = self.base_color
+        return base[0], base[1], base[2]
+
     def _update_color_profile(self, _context: bpy.types.Context) -> None:
         """Refresh this profile's material after a saved input changes."""
         self.update_preview_material()
 
     def _get_base_volume(self) -> float:
-        """Read the original RNA storage key, including existing blend
-        files."""
-        return float(self.get("base_volume_ml", 100.0))
+        """Read the volume from its original storage key."""
+        return float(self.get(_BASE_VOLUME_KEY, _DEFAULT_BASE_VOLUME_ML))
 
     def _set_base_volume(self, value: float) -> None:
-        """Scale every dye dose with volume to preserve its concentration."""
+        """Scale every dye dose with the volume to keep concentrations."""
         previous = self._get_base_volume()
         volume = max(value, _MIN_COLORING_VOLUME_ML)
-        self["base_volume_ml"] = volume
+        self[_BASE_VOLUME_KEY] = volume
+        scale = volume / previous
         for colorant in self.colorants:
-            colorant.drops *= volume / previous
+            colorant.drops *= scale
 
     def _get_result_color(self) -> RGB:
         """Calculate the result swatch without storing duplicate color data."""
         return self.appearance().color
 
     def _ignore_result_color_edit(self, _value: Sequence[float]) -> None:
-        """Keep the calculated swatch read-only while allowing full-color
-        drawing."""
+        """Keep the swatch read-only; a setter lets it draw as a full color."""
 
     if TYPE_CHECKING:
         profile_name: str
@@ -330,7 +350,7 @@ class SiliconeCastingColorProfile(bpy.types.PropertyGroup):
             description="Scale base volume and all dye drops together",
             get=_get_base_volume,
             set=_set_base_volume,
-            default=100.0,
+            default=_DEFAULT_BASE_VOLUME_ML,
             min=_MIN_COLORING_VOLUME_ML,
             precision=2,
             update=_update_color_profile,

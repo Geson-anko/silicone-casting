@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import cast, override
+from typing import Final, NamedTuple, cast, override
 
 import bpy
 
@@ -20,7 +20,25 @@ from ..properties.color import SiliconeCastingColorant, SiliconeCastingColorProf
 from ..properties.settings import SiliconeCastingProperties, scene_settings
 from ._layout import draw_recipe_exchange, table_cells
 
-_COLORANT_COLUMN_WEIGHTS = (0.55, 1.2, 2.5, 2.0, 2.0, 2.8, 2.2)
+
+class _Column(NamedTuple):
+    """One colorant table column: its width, heading, and edited property."""
+
+    weight: float
+    heading: str
+    property_name: str
+
+
+_COLORANT_COLUMNS: Final = (
+    _Column(0.55, "On", "enabled"),
+    _Column(1.2, "Color", "calibration_color"),
+    _Column(2.5, "Dye", "colorant_name"),
+    _Column(2.0, "Hue (degrees)", "calibration_hue_degrees"),
+    _Column(2.0, "Lightness (%)", "calibration_lightness_percent"),
+    _Column(2.8, "Calibration Drops / mL", "calibration_drops_per_ml"),
+    _Column(2.2, "Actual Drops", "drops"),
+)
+_COLORANT_COLUMN_WEIGHTS: Final = tuple(column.weight for column in _COLORANT_COLUMNS)
 
 
 class SILCAST_UL_color_profiles(bpy.types.UIList):
@@ -69,26 +87,15 @@ class SILCAST_UL_colorants(bpy.types.UIList):
             return
         colorant = cast(SiliconeCastingColorant, item)
         cells = table_cells(layout, _COLORANT_COLUMN_WEIGHTS)
-        for cell, property_name in zip(
-            cells,
-            (
-                "enabled",
-                "calibration_color",
-                "colorant_name",
-                "calibration_hue_degrees",
-                "calibration_lightness_percent",
-                "calibration_drops_per_ml",
-                "drops",
-            ),
-            strict=True,
-        ):
-            cell.prop(colorant, property_name, text="")
+        for cell, column in zip(cells, _COLORANT_COLUMNS, strict=True):
+            cell.prop(colorant, column.property_name, text="")
 
 
 def _draw_profile_selector(
     layout: bpy.types.UILayout,
     settings: SiliconeCastingProperties,
 ) -> None:
+    """Draw recipe exchange and the named profile list."""
     draw_recipe_exchange(layout, "COLORS")
     profiles = layout.box()
     profiles.label(text="1. Choose a Named Profile")
@@ -119,6 +126,7 @@ def _draw_base_settings(
     layout: bpy.types.UILayout,
     profile: SiliconeCastingColorProfile,
 ) -> None:
+    """Draw the untinted silicone inputs."""
     base = layout.box()
     base.label(text="2. Set the Silicone Base Color, Volume, and Transparency")
     volume = base.row(align=True)
@@ -141,6 +149,7 @@ def _draw_colorants(
     layout: bpy.types.UILayout,
     profile: SiliconeCastingColorProfile,
 ) -> None:
+    """Draw the colorant table and the selected dye's editor."""
     colorants = layout.box()
     colorants.label(text="3. Add Colorants and Enter the Actual Drops")
     colorants.label(
@@ -162,20 +171,10 @@ def _draw_colorant_list(
 ) -> None:
     """Draw the calibrated doses with aligned headings and row controls."""
     header = layout.row()
-    for cell, text in zip(
-        table_cells(header, _COLORANT_COLUMN_WEIGHTS),
-        (
-            "On",
-            "Color",
-            "Dye",
-            "Hue (degrees)",
-            "Lightness (%)",
-            "Calibration Drops / mL",
-            "Actual Drops",
-        ),
-        strict=True,
-    ):
-        cell.label(text=text)
+    cells = table_cells(header, _COLORANT_COLUMN_WEIGHTS)
+    for cell, column in zip(cells, _COLORANT_COLUMNS, strict=True):
+        cell.label(text=column.heading)
+    # Reserve the width of the list's add/remove column so headings line up.
     header.column().label(text="", icon="BLANK1")
     colorant_row = layout.row()
     colorant_row.template_list(
@@ -230,6 +229,7 @@ def _draw_color_result(
     layout: bpy.types.UILayout,
     profile: SiliconeCastingColorProfile,
 ) -> None:
+    """Draw the mixed color, its copyable values, and material assignment."""
     result = layout.box()
     result.label(text="4. Check the Mixed Color (click values to copy)")
     swatch = result.row()
@@ -240,7 +240,7 @@ def _draw_color_result(
     srgb = linear_rgb_to_srgb8(calculated.color)
     color_values = (
         ("Hex (sRGB)", format_hex_color(calculated.color)),
-        ("sRGB 8-bit", f"rgb({srgb[0]}, {srgb[1]}, {srgb[2]})"),
+        ("sRGB 8-bit", f"rgb({srgb.red}, {srgb.green}, {srgb.blue})"),
         ("Linear RGB", format_linear_rgb(calculated.color)),
     )
     value_row = result.row(align=True)
