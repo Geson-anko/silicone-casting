@@ -1,6 +1,6 @@
-# AGENTS.md
+# CLAUDE.md
 
-このファイルは Codex がこのリポジトリを扱う際のガイダンスを提供する。
+このファイルは Claude Code (claude.ai/code) がこのリポジトリを扱う際のガイダンスを提供する。
 
 ## プロジェクト概要
 
@@ -75,7 +75,7 @@ LLM コーディングで陥りがちなミスを減らすための行動指針�
 
 ## メモリ参照
 
-プロジェクト固有の規約・知見・ユーザーの好みは repo ルート [memory/](memory/) に保存する（git 管理対象）。エージェント固有メモリは [memory/agents/](memory/agents/) 配下に同じレイアウトで配置する。ユーザー環境の Codex メモリには保存せず、プロジェクト内の git 管理を優先する。
+プロジェクト固有の規約・知見・ユーザーの好みは repo ルート [memory/](memory/) に保存する（git 管理対象）。エージェント固有メモリは [memory/agents/](memory/agents/) 配下に同じレイアウトで配置する。harness が自動ロードする `~/.claude/projects/.../memory/` パスは **使わない**（プロジェクト内の git 管理を優先する方針）。
 
 セッション開始時、または規約が関係しそうなタスクに着手する前に [memory/MEMORY.md](memory/MEMORY.md) のインデックスを確認すること。新しい規約・フィードバック・ユーザー像が判明した場合は同ディレクトリにファイルを足し、`MEMORY.md` から 1 行リンクを張る。
 
@@ -196,12 +196,12 @@ LLM コーディングで陥りがちなミスを減らすための行動指針�
 
 常時ロードを避けるため、詳細は skill にオフロードしてある:
 
-- **Git 運用**（ブランチ / コミット命名、追跡対象を変更する前に読む）: `$git-ops`
-- **エージェントチーム**（設計 → 実装/テスト → 統合/レビュー → ドキュメント）: `$agent-team`
-- **並列化**: `$maximize-parallels`
-- **テスト方針**（2 階層テスト、golden mesh、書かないテスト）: `$testing-strategy`
-- **実機確認**（Blender MCP 経由で実 Blender を触る）: `$blender-mcp`
-- **PR 作成**: `$github-pr` / **main 取り込み**: `$merge-main` / **worktree 隔離**: `$do-on-worktree`
+- **Git 運用**（ブランチ / コミット命名、追跡対象を変更する前に読む）: `/git-ops`
+- **エージェントチーム**（設計 → 実装/テスト → 統合/レビュー → ドキュメント）: `/agent-team`
+- **並列化**: `/maximize-parallels`
+- **テスト方針**（2 階層テスト、golden mesh、書かないテスト）: `/testing-strategy`
+- **実機確認**（Blender MCP 経由で実 Blender を触る）: `/blender-mcp`
+- **PR 作成**: `/github-pr` / **main 取り込み**: `/merge-main` / **worktree 隔離**: `/do-on-worktree`
 
 ## リリース
 

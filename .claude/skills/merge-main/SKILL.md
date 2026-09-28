@@ -7,7 +7,7 @@ description: "作業の最後、PR を出す直前に main をリモート最新
 
 作業の最後、PR を出す **直前** に実行する。`origin/main` を作業ブランチへ merge し、conflict を解消してから PR を立てる。これにより PR が最新の base に対して clean に diff する。
 
-[$git-ops](../git-ops/SKILL.md) と整合。**`main` への直接 commit / push はしない**。取り込みは作業ブランチ側で行う。
+[/git-ops](../git-ops/SKILL.md) と整合。**`main` への直接 commit / push はしない**。取り込みは作業ブランチ側で行う。
 
 このリポジトリは **rebase ではなく merge** で main を取り込む（merge commit が残ることを許容し、自ブランチの commit hash を書き換えない）。
 
@@ -61,7 +61,7 @@ git diff --name-only --diff-filter=U    # conflict した file 一覧
 各 file の `<<<<<<<` / `=======` / `>>>>>>>` を解消する。
 
 - **両者の意図を保持する**。main 側の変更を握り潰さない / 自分の変更も捨てない。`--ours` / `--theirs` で機械的に片方を採るのは、本当にもう一方が不要か確認してから
-- 判断が割れる conflict（両方が同じ関数を別意図で書き換えた等）は **勝手に決めず、何が衝突しているか名指しでユーザーに確認する**（AGENTS.md 開発原則 1）
+- 判断が割れる conflict（両方が同じ関数を別意図で書き換えた等）は **勝手に決めず、何が衝突しているか名指しでユーザーに確認する**（CLAUDE.md 開発原則 1）
 - 解消したら `git add <file>`、全部済んだら `git merge --continue`
 - 中断したくなったら `git merge --abort`
 
@@ -73,7 +73,7 @@ git diff --name-only --diff-filter=U    # conflict した file 一覧
 | `tests/fixtures/*.obj`               | **手で潰さない**。`src/` 側を先に解消してから `just fixtures` で再生成する。ただし **両側がジオメトリを変えている場合は再生成では解決しない** — 双方の意図が両立するか判断が要るので、ユーザーに確認する |
 | `blender_manifest.toml` の `version` | リリース側 (`main`) の値を採る。作業ブランチでバージョンを上げていたなら、それはリリース手順の逸脱なので見直す                                                                                           |
 | `CHANGELOG.md` の `## [Unreleased]`  | 両方のエントリを残す。順序は問わない                                                                                                                                                                     |
-| `.agents/skills/` `.codex/agents/`   | 両者の意図を読んで統合する。片方を機械的に採らない                                                                                                                                                       |
+| `.claude/skills/` `.claude/agents/`  | 両者の意図を読んで統合する。片方を機械的に採らない                                                                                                                                                       |
 
 ### 5. 取り込み後の検証
 
@@ -92,7 +92,7 @@ just blender-test  # ジオメトリに関わる変更が両側にあった場�
 git push
 ```
 
-以降は [$github-pr](../github-pr/SKILL.md) の `gh pr create` 手順へ。
+以降は [/github-pr](../github-pr/SKILL.md) の `gh pr create` 手順へ。
 
 ______________________________________________________________________
 

@@ -142,6 +142,6 @@ just blender-test                                # tier 2 (build → install →
 BLENDER=/path/to/blender just blender-test       # 別バージョンの Blender で
 ```
 
-tier 2 は Blender のユーザー設定を書き換えるので、**複数同時に走らせない**（[$do-on-worktree](../do-on-worktree/SKILL.md) の共有 state の項を参照）。
+tier 2 は Blender のユーザー設定を書き換えるので、**複数同時に走らせない**（[/do-on-worktree](../do-on-worktree/SKILL.md) の共有 state の項を参照）。
 
-実 Blender を対話的に触って挙動を確かめたい場合は [$blender-mcp](../blender-mcp/SKILL.md)。
+実 Blender を対話的に触って挙動を確かめたい場合は [/blender-mcp](../blender-mcp/SKILL.md)。

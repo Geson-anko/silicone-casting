@@ -64,7 +64,7 @@ exclude = [
     "**/__pycache__",
     "**/.venv",
     "tests/",
-    ".worktrees/",
+    ".claude/worktrees/",
 ]
 # bpy / bmesh / mathutils は fake-bpy-module が型を供給する。
 # 実 bpy wheel と同じ `bpy` パッケージ名を占有するため、`just type` は
