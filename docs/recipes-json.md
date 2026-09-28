@@ -1,0 +1,35 @@
+# レシピの保存と読み込み（JSON）
+
+[README に戻る](../README.md)
+
+Mixture Calculator の配合と、Color Mixing Simulator のカラープロファイルは、JSON ファイルに書き出して、別の `.blend` で読み込めます。どちらも、それぞれの画面の一番上にある **Export JSON** / **Import JSON** を使います。
+
+![Mixture Calculator と Color Mixing Simulator の一番上にある Export JSON と Import JSON のボタン](images/recipes-json.png)
+
+## 保存されるもの
+
+| 画面                   | ファイルに入るもの                                                                                                                                   |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mixture Calculator     | Same Density for A and B、Density A / B、Ratio A / B と、すべての行（Enabled、選択状態、Name、Vol）                                                  |
+| Color Mixing Simulator | すべてのプロファイル（名前、Base Volume、ベースの色、Base Transparency と、各染料の On、名前、Hue、Lightness、Calibration Drops / mL、Actual Drops） |
+
+計算結果（重量や結果の色）や、オブジェクトに適用したマテリアルは入りません。読み込むと、入力値から計算し直されます。
+
+## 読み込むとどうなるか
+
+| 画面                   | 読み込みの動作                                                                                                                            |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Mixture Calculator     | 今の設定とすべての行が、ファイルの内容に **置き換わります**。今ある行は消えます。                                                         |
+| Color Mixing Simulator | ファイルのプロファイルが、今のリストの末尾に **追加されます**。今あるプロファイルは残ります。読み込んだ最後のプロファイルが選択されます。 |
+
+配合の表を読み込むと今の行が消えるので、残したい表は先に Export JSON で保存しておいてください。
+
+## 読み込めないファイル
+
+次のようなファイルは、**何も変更せずに** 読み込みを拒否し、エラーを表示します（`Unsupported recipe format, version, or type` など）。
+
+- 種類が違うファイル。Mixture Calculator の Import JSON は配合のファイルだけ、Color Mixing Simulator の Import JSON はカラーのファイルだけを受け付けます。
+- 古い形式（version 1）のファイル
+- 項目の欠けや余分な項目、範囲外の値（負の体積など）、不正な文字を含むファイル
+
+ファイル全体を確認してから反映するので、途中まで読み込まれて表が壊れることはありません。
