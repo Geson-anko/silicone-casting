@@ -12,6 +12,8 @@ MIN_SURFACE_CUT_THICKNESS_MM: Final = 0.001
 # of the thin cutter into each other.
 _MERGE_DISTANCE_FACTOR: Final = 0.49
 
+type SurfaceCutSolver = Literal["Manifold", "Exact"]
+
 
 def _input(node: bpy.types.Node, key: str | int) -> bpy.types.NodeSocket:
     """Return a node input through the non-optional base API."""
@@ -31,6 +33,7 @@ class _SurfaceCutBuilder:
         surface: bpy.types.Object,
         thickness: float,
         minimum_thickness: float,
+        solver: SurfaceCutSolver,
     ) -> None:
         self._surface = surface
         self._group = cast(
@@ -40,7 +43,7 @@ class _SurfaceCutBuilder:
         self._group.is_modifier = True
         self._solver_switch = self._create_solver_switch()
         self._surface_socket = self._create_interface(
-            surface, thickness, minimum_thickness
+            surface, thickness, minimum_thickness, solver
         )
         self._group_input = self._group.nodes.new("NodeGroupInput")
         self._group_output = self._group.nodes.new("NodeGroupOutput")
@@ -74,6 +77,7 @@ class _SurfaceCutBuilder:
         surface: bpy.types.Object,
         thickness: float,
         minimum_thickness: float,
+        solver: SurfaceCutSolver,
     ) -> bpy.types.NodeTreeInterfaceSocketObject:
         self._new_socket("Geometry", "INPUT", "NodeSocketGeometry")
         surface_socket = cast(
@@ -105,7 +109,7 @@ class _SurfaceCutBuilder:
         solver_socket.from_socket(
             self._solver_switch, _input(self._solver_switch, "Menu")
         )
-        solver_socket.default_value = "Manifold"
+        solver_socket.default_value = solver
         self._new_socket("Geometry", "OUTPUT", "NodeSocketGeometry")
         return surface_socket
 
@@ -316,6 +320,7 @@ def create_surface_cut(
     thickness: float,
     *,
     minimum_thickness: float,
+    solver: SurfaceCutSolver = "Manifold",
 ) -> bpy.types.NodesModifier:
     """Add one integrated Surface Cut modifier to *target*.
 
@@ -330,10 +335,11 @@ def create_surface_cut(
         surface: Mesh object used as the live cutting surface.
         thickness: Positive cutter thickness in Blender units.
         minimum_thickness: Lower limit exposed by the modifier, in Blender units.
+        solver: Initial value of the modifier's Solver input.
 
     Returns:
         The newly added Geometry Nodes modifier.
     """
-    return _SurfaceCutBuilder(surface, thickness, minimum_thickness).add_modifier(
-        target
-    )
+    return _SurfaceCutBuilder(
+        surface, thickness, minimum_thickness, solver
+    ).add_modifier(target)
