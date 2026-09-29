@@ -2,6 +2,7 @@
 
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
+from itertools import count
 from typing import Final, Literal, Self, cast
 
 import bpy
@@ -297,7 +298,7 @@ class KeyPair:
         modifiers: list[tuple[bpy.types.Object, bpy.types.BooleanModifier]] = []
         try:
             for half, socket in ((target, False), (mate, True)):
-                operand = _create_operand(context, dimensions, socket=socket)
+                operand = _create_operand(half, dimensions, socket=socket)
                 operands.append(operand)
                 operand.parent = half
                 operand.matrix_world = matrix
@@ -440,17 +441,23 @@ def _is_editable_mesh_in_view_layer(
 
 
 def _create_operand(
-    context: bpy.types.Context, dimensions: KeyDimensions, *, socket: bool
+    half: bpy.types.Object, dimensions: KeyDimensions, *, socket: bool
 ) -> bpy.types.Object:
-    """Link a new render- and select-hidden operand object to the scene."""
-    mesh = dimensions.create_mesh(_SOCKET_NAME if socket else _PIN_NAME, socket=socket)
+    """Link a new render- and select-hidden operand beside its half.
+
+    Operands gather in a ``<key>.<half>`` collection next to the half and are
+    named ``<key>.<half>.<index>``, so they do not pile up at the scene root.
+    """
+    prefix = f"{_SOCKET_NAME if socket else _PIN_NAME}.{half.name}"
+    index = next(i for i in count(1) if f"{prefix}.{i:03d}" not in bpy.data.objects)
+    mesh = dimensions.create_mesh(f"{prefix}.{index:03d}", socket=socket)
     try:
         obj = bpy.data.objects.new(mesh.name, mesh)
     except (ValueError, RuntimeError):
         bpy.data.meshes.remove(mesh)
         raise
     try:
-        context.scene.collection.objects.link(obj)
+        _key_collection(half, prefix).objects.link(obj)
         obj.hide_render = True
         obj.hide_select = True
     except (ValueError, RuntimeError):
@@ -459,10 +466,27 @@ def _create_operand(
     return obj
 
 
+def _key_collection(half: bpy.types.Object, name: str) -> bpy.types.Collection:
+    """Find or add the named key collection in the half's first collection."""
+    parent = half.users_collection[0]
+    collection = parent.children.get(name)
+    if collection is None:
+        collection = bpy.data.collections.new(name)
+        parent.children.link(collection)
+    return collection
+
+
 def _remove_operand(obj: bpy.types.Object) -> None:
     mesh = cast(bpy.types.Mesh, obj.data)
+    collections = tuple(obj.users_collection)
     bpy.data.objects.remove(obj, do_unlink=True)
     _remove_unused_meshes((mesh,))
+    for collection in collections:
+        is_key_collection = collection.name.startswith(
+            (f"{_PIN_NAME}.", f"{_SOCKET_NAME}.")
+        )
+        if is_key_collection and not collection.all_objects:
+            bpy.data.collections.remove(collection)
 
 
 def _remove_unused_meshes(meshes: Iterable[bpy.types.Mesh]) -> None:
