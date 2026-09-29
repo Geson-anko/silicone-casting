@@ -24,6 +24,7 @@ def halves(registered: None) -> Iterator[tuple[bpy.types.Object, bpy.types.Objec
     scene = bpy.context.scene
     original_objects = set(bpy.data.objects)
     original_meshes = set(bpy.data.meshes)
+    original_collections = set(bpy.data.collections)
     original_scale = scene.unit_settings.scale_length
     original_cursor = scene.cursor.matrix.copy()
     for obj in scene.objects:
@@ -67,6 +68,9 @@ def halves(registered: None) -> Iterator[tuple[bpy.types.Object, bpy.types.Objec
     for mesh in list(bpy.data.meshes):
         if mesh not in original_meshes:
             bpy.data.meshes.remove(mesh)
+    for collection in list(bpy.data.collections):
+        if collection not in original_collections:
+            bpy.data.collections.remove(collection)
     scene.unit_settings.scale_length = original_scale
     scene.cursor.matrix = original_cursor
 

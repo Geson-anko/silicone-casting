@@ -135,7 +135,7 @@ class SILCAST_OT_draw_air_vents(bpy.types.Operator):
         self._diameter = scene_settings(context).air_vent_diameter
         try:
             self._session = DrawingSession.from_context(
-                context, self, _PREVIEW_NAME, (context.scene.collection,)
+                context, self, _PREVIEW_NAME, tuple(self._targets[0].users_collection)
             )
         except ValueError as error:
             self.report({"WARNING"}, str(error))
