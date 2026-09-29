@@ -8,7 +8,9 @@
 
 ## [Unreleased]
 
-### Changed
+## [0.1.1] - 2026-09-29
+
+### Fixed
 
 - **Registration Keys** を閉じていない（非多様体の）型にも置けるようにした。体積による配置検証は、型と Boolean 結果が閉じている場合だけ行う
 - **Boolean** の Manifold と **Surface Cut** は、対象が閉じていないメッシュなら Exact ソルバーで追加する
@@ -89,4 +91,5 @@
 - Separate Loose Parts で、オブジェクト側に割り当てたマテリアルと空の材質枠を分離後も保持
 
 [0.1.0]: https://github.com/Geson-anko/silicone-casting/releases/tag/v0.1.0
-[unreleased]: https://github.com/Geson-anko/silicone-casting/compare/v0.1.0...HEAD
+[0.1.1]: https://github.com/Geson-anko/silicone-casting/releases/tag/v0.1.1
+[unreleased]: https://github.com/Geson-anko/silicone-casting/compare/v0.1.1...HEAD
