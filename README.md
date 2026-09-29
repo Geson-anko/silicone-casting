@@ -2,41 +2,25 @@
 
 シリコーン造形用の樹脂型を、マスターモデルから Blender 上で作るアドオン。
 
-作った型は、3D プリントできる分割型になる。
-
-## 📝 TL;DR
-
-- マスターから **壁 → 分割 → ダボ → 空気孔 → STL** まで、サイドバーだけで作れる
-- シリコーンの **体積の計測**、**A 剤・B 剤の配合計算**、**着色のシミュレーション** もできる
-- **Blender 5.1 以上** が必要
-- ボタンはすべて、3D Viewport のサイドバー（**N** キー）の **Silicone Casting** タブにある
-
 ![Silicone Casting のサイドバーと、分割した型のモデル](docs/images/overview.png)
 
 ## ✨ できること
 
-- 📏 **Measure Volume**: 選んだメッシュの体積を mL で測る
-- 🧪 **Mixture Calculator**: 体積から A 剤・B 剤の体積と重量を計算する
-- 🎨 **Color Mixing Simulator**: 染料の滴数から仕上がりの色と透明度を予測する
-- 🔗 **Inherit Shape**: マスターを残したまま、同じ形のオブジェクトを作る
-- 🧱 **Solidify**: 厚みを付けて型の壁にする
-- ➖ **Boolean**: 注ぎ口のくり抜きなどの加工をする
-- 🔪 **Surface Cut**: 型を曲面で割る
-- 🧩 **Separate Loose Parts**: 割れた塊を別々のオブジェクトにする
-- 📍 **Registration Keys**: 合わせ位置のダボを付ける
-- 💨 **Air Vents**: 空気孔を開ける
-- 📤 **Export STL**: mm 単位の STL を書き出す
-- 💾 **JSON**: 配合と色のレシピを保存・読み込みする
+- 📏 **Measure Volume**: 選んだメッシュの体積を mL で計測
+- 🧪 **Mixture Calculator**: 体積から A 剤・B 剤の体積と重量を計算
+- 🎨 **Color Mixing Simulator**: 染料の滴数から仕上がりの色と透明度を予測
+- 🔗 **Inherit Shape**: マスターを残したまま、同じ形のオブジェクトを作成
+- 🧱 **Solidify**: 厚みを付けて型の壁を生成
+- ➖ **Boolean**: 注ぎ口のくり抜きなどの加工
+- 🔪 **Surface Cut**: 型を曲面で分割
+- 🧩 **Separate Loose Parts**: 割れた塊を別々のオブジェクトに分離
+- 📍 **Registration Keys**: 合わせ位置のダボ付
+- 💨 **Air Vents**: 空気孔の作成
+- 📤 **Export STL**: 3Dプリンター用にSTL を書き出し
 
 ## 📋 動作要件
 
 - **Blender 5.1 以上**（Windows / macOS / Linux）
-
-Blender 5.0 以前には対応していない。
-
-5.0 以前の Blender では、インストールしようとしても非対応として受け付けられない。
-
-その場合は、Blender を 5.1 以上に更新する。
 
 ## 🚀 インストール
 
@@ -44,11 +28,7 @@ Blender 5.0 以前には対応していない。
 2. Blender で **Edit > Preferences** を開き、左の一覧から **Get Extensions** を選ぶ。
 3. 右上の **∨**（下向き矢印）のメニューを開く。**Install from Disk...** を選び、ダウンロードした zip を指定する。
 
-下の図の 1 → 2 → 3 の順。
-
 ![Preferences の画面。1 が左の一覧の Get Extensions、2 が右上の ∨ メニュー、3 がメニューの中の Install from Disk...](docs/images/install-extension.png)
-
-インストールすると、アドオンは有効になる。
 
 Preferences の **Add-ons** の一覧に **Silicone Casting** が表示される。
 
@@ -76,19 +56,13 @@ Preferences の **Add-ons** の一覧に **Silicone Casting** が表示される
 
 Processing の中の **Solidify / Boolean / Surface Cut / Air Vents / Inherit Shape / Registration Keys** は、見出しだけが並んだ **折りたたみ**。
 
-最初はすべて閉じている。
-
 使う機能の見出し（左の ▸）をクリックして開くと、設定欄とボタンが表示される。
-
-**Separate Loose Parts** と **Export STL** は折りたたまれておらず、常にボタンが見えている。
 
 ![Processing パネルの左が最初の状態、右が Solidify の見出しを開いた状態。赤枠が折りたたみの見出し、青枠が常に表示される Separate Loose Parts と Export STL](docs/images/processing-sections.png)
 
 ## 🔁 型づくりの流れ
 
-典型的な手順は次のとおり。
-
-1. マスターモデルを用意する（閉じたメッシュ）
+1. マスターモデルを用意（閉じたメッシュ）
 2. マスターの体積を測り、シリコーンの配合と着色を決める
 3. **Inherit Shape** でマスターの形を参照するオブジェクトを作り、**Solidify** で壁を付ける
 4. 必要なら **Boolean** で注ぎ口などを加工する
