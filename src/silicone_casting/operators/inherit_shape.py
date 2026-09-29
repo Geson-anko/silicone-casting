@@ -56,17 +56,36 @@ def _create_inherited_object(
     modifier.solver = "EXACT"
 
     if isinstance(source, bpy.types.Collection):
-        # Linked outside the operand: inside it, the result would feed its own
-        # Boolean and form a dependency cycle.
-        context.scene.collection.objects.link(inherited)
+        # Linked beside the operand, not inside it: inside, the result would
+        # feed its own Boolean and form a dependency cycle.
+        for parent in _parent_collections(context, source):
+            parent.objects.link(inherited)
         modifier.operand_type = "COLLECTION"
         modifier.collection = source
     else:
-        context.collection.objects.link(inherited)
+        for collection in source.users_collection:
+            collection.objects.link(inherited)
         inherited.matrix_world = source.matrix_world.copy()
         modifier.operand_type = "OBJECT"
         modifier.object = source
     return inherited
+
+
+def _parent_collections(
+    context: bpy.types.Context, collection: bpy.types.Collection
+) -> list[bpy.types.Collection]:
+    """Return the scene collections that directly contain *collection*.
+
+    Falls back to the scene root for a collection not linked into the
+    scene.
+    """
+    root = context.scene.collection
+    parents = [
+        parent
+        for parent in (root, *root.children_recursive)
+        if collection.name in parent.children
+    ]
+    return parents or [root]
 
 
 def _select_only(context: bpy.types.Context, obj: bpy.types.Object) -> None:
