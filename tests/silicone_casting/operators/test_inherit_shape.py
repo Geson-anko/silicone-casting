@@ -268,3 +268,31 @@ def test_collection_with_mixed_object_types_is_rejected(
     with pytest.raises(RuntimeError, match="only mesh"):
         bpy.ops.silicone_casting.inherit_shape(use_collection=True)
     assert set(bpy.data.objects) == original_objects
+
+
+def test_an_object_result_is_linked_beside_its_source(
+    add_object: AddObject, source_collection: bpy.types.Collection
+) -> None:
+    source = add_object("Master")
+    bpy.context.scene.collection.objects.unlink(source)
+    source_collection.objects.link(source)
+
+    bpy.ops.silicone_casting.inherit_shape()
+
+    inherited = bpy.context.active_object
+    assert inherited is not None
+    assert tuple(inherited.users_collection) == (source_collection,)
+
+
+def test_a_nested_collection_result_is_linked_beside_that_collection(
+    add_object: AddObject, source_collection: bpy.types.Collection
+) -> None:
+    nested = source_collection.children[0]
+    nested.objects.link(add_object("First"))
+    bpy.context.scene.silicone_casting.inherit_collection = nested
+
+    bpy.ops.silicone_casting.inherit_shape(use_collection=True)
+
+    inherited = bpy.context.active_object
+    assert inherited is not None
+    assert tuple(inherited.users_collection) == (source_collection,)

@@ -25,6 +25,7 @@ def halves(registered: None) -> Iterator[tuple[bpy.types.Object, bpy.types.Objec
     scene = bpy.context.scene
     original_objects = set(bpy.data.objects)
     original_meshes = set(bpy.data.meshes)
+    original_collections = set(bpy.data.collections)
     original_scale = scene.unit_settings.scale_length
     original_cursor = scene.cursor.matrix.copy()
     for obj in scene.objects:
@@ -66,6 +67,9 @@ def halves(registered: None) -> Iterator[tuple[bpy.types.Object, bpy.types.Objec
     for mesh in list(bpy.data.meshes):
         if mesh not in original_meshes:
             bpy.data.meshes.remove(mesh)
+    for collection in list(bpy.data.collections):
+        if collection not in original_collections:
+            bpy.data.collections.remove(collection)
     scene.unit_settings.scale_length = original_scale
     scene.cursor.matrix = original_cursor
 
@@ -164,11 +168,40 @@ def test_scaled_rotated_target_keeps_world_size_and_world_face_normal(halves) ->
     assert MeshInvariants.from_mesh(pin.data).bbox_max == pytest.approx((2, 2, 3))
 
 
+def test_operands_are_numbered_in_a_key_collection_beside_each_half(halves) -> None:
+    male, female = halves
+    mold = bpy.data.collections.new("Mold")
+    bpy.context.scene.collection.children.link(mold)
+    bpy.context.scene.collection.objects.unlink(male)
+    mold.objects.link(male)
+    settings = KeySettings.from_context(bpy.context)
+    first = KeyPair.create(bpy.context, settings, Vector((-4, 0, 0)), Vector((0, 0, 1)))
+    second = KeyPair.create(bpy.context, settings, Vector((4, 0, 0)), Vector((0, 0, 1)))
+
+    pins = mold.children["Registration Pin.Male half"]
+    sockets = bpy.context.scene.collection.children["Registration Socket.Female half"]
+    assert [obj.name for obj in pins.objects] == [
+        "Registration Pin.Male half.001",
+        "Registration Pin.Male half.002",
+    ]
+    assert [obj.name for obj in sockets.objects] == [
+        "Registration Socket.Female half.001",
+        "Registration Socket.Female half.002",
+    ]
+    assert tuple(first.pin.users_collection) == (pins,)
+
+    first.delete(bpy.context)
+    assert [obj.name for obj in pins.objects] == ["Registration Pin.Male half.002"]
+    second.delete(bpy.context)
+    assert "Registration Pin.Male half" not in bpy.data.collections
+    assert "Registration Socket.Female half" not in bpy.data.collections
+
+
 def test_a_missed_mate_rolls_back_both_modifiers_and_helper_datablocks(halves) -> None:
     male, female = halves
     female.location.x = 100
     bpy.context.view_layer.update()
-    before = (set(bpy.data.objects), set(bpy.data.meshes))
+    before = (set(bpy.data.objects), set(bpy.data.meshes), set(bpy.data.collections))
 
     with pytest.raises(ValueError):
         KeyPair.create(
@@ -179,7 +212,11 @@ def test_a_missed_mate_rolls_back_both_modifiers_and_helper_datablocks(halves) -
         )
 
     assert not male.modifiers and not female.modifiers
-    assert (set(bpy.data.objects), set(bpy.data.meshes)) == before
+    assert (
+        set(bpy.data.objects),
+        set(bpy.data.meshes),
+        set(bpy.data.collections),
+    ) == before
 
 
 def test_a_key_entirely_inside_the_male_is_rejected_without_partial_data(
