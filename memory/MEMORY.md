@@ -25,7 +25,7 @@
 
 - [計画・仕様書の言語](feedback_planning_doc_language.md) — 仕様書・CLAUDE.md・skill は日本語で書く
 - [ユーザー向けドキュメントは後回し](feedback_defer_user_docs.md) — README / docs は依頼されるまで書かない
-- [利用者向けドキュメントの文体](feedback_user_docs_style.md) — pamiq-core 風の簡潔な常体。短い文・1 文ごとの改行・TL;DR・絵文字。`[!WARNING]` は mdformat が壊すので使わない
+- [利用者向けドキュメントの文体](feedback_user_docs_style.md) — 読む量を最小に。図や GUI で分かることは書かない。簡潔な常体・体言止めの箇条書き・絵文字。`[!WARNING]` は mdformat が壊すので使わない
 - [モディファイア出力に golden を作らない](feedback_no_golden_for_modifier_output.md) — Blender 標準モディファイアの結果は不変量だけで検証する
 - [常時ライブ更新よりボタン起動](feedback_prefer_explicit_trigger.md) — 計測系は「押して計算 → Scene に保存 → draw は表示だけ」。テスト可能性が跳ね上がる
 - [Mixture CalculatorのUI](feedback_mixture_calculator_ui.md) — Nパネル横の広いポップオーバーで開き、Enabled以外の行選択チェックボックスは使わない
