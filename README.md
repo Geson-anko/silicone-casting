@@ -1,15 +1,15 @@
 # Silicone Casting
 
-シリコーン造形用の樹脂型を、マスターモデルから Blender 上で作るためのアドオンです。
+シリコーン造形用の樹脂型を、マスターモデルから Blender 上で作るアドオン。
 
-作った型は 3D プリントできる分割型になります。
+作った型は、3D プリントできる分割型になる。
 
 ## 📝 TL;DR
 
-- マスターから **壁 → 分割 → ダボ → 空気孔 → STL** まで、サイドバーだけで作れます
-- シリコーンの **体積の計測**、**A 剤・B 剤の配合計算**、**着色のシミュレーション** もできます
-- **Blender 5.1 以上** が必要です
-- ボタンはすべて 3D Viewport のサイドバー（**N** キー）の **Silicone Casting** タブにあります
+- マスターから **壁 → 分割 → ダボ → 空気孔 → STL** まで、サイドバーだけで作れる
+- シリコーンの **体積の計測**、**A 剤・B 剤の配合計算**、**着色のシミュレーション** もできる
+- **Blender 5.1 以上** が必要
+- ボタンはすべて、3D Viewport のサイドバー（**N** キー）の **Silicone Casting** タブにある
 
 ![Silicone Casting のサイドバーと、分割した型のモデル](docs/images/overview.png)
 
@@ -32,39 +32,39 @@
 
 - **Blender 5.1 以上**（Windows / macOS / Linux）
 
-Blender 5.0 以前には対応していません。
+Blender 5.0 以前には対応していない。
 
-5.0 以前の Blender では、インストールしようとしても非対応として受け付けられません。
+5.0 以前の Blender では、インストールしようとしても非対応として受け付けられない。
 
-その場合は Blender を 5.1 以上に更新しましょう。
+その場合は、Blender を 5.1 以上に更新する。
 
 ## 🚀 インストール
 
-1. [GitHub の Releases ページ](https://github.com/Geson-anko/silicone-casting/releases) から `silicone_casting-<バージョン>.zip` をダウンロードします。**zip は解凍しません。**
-2. Blender で **Edit > Preferences** を開き、左の一覧から **Get Extensions** を選びます。
-3. 右上の **∨**（下向き矢印）のメニューを開きます。**Install from Disk...** を選んで、ダウンロードした zip を指定します。
+1. [GitHub の Releases ページ](https://github.com/Geson-anko/silicone-casting/releases) から `silicone_casting-<バージョン>.zip` をダウンロードする。**zip は解凍しない。**
+2. Blender で **Edit > Preferences** を開き、左の一覧から **Get Extensions** を選ぶ。
+3. 右上の **∨**（下向き矢印）のメニューを開く。**Install from Disk...** を選び、ダウンロードした zip を指定する。
 
-下の図の 1 → 2 → 3 の順です。
+下の図の 1 → 2 → 3 の順。
 
 ![Preferences の画面。1 が左の一覧の Get Extensions、2 が右上の ∨ メニュー、3 がメニューの中の Install from Disk...](docs/images/install-extension.png)
 
-インストールすると、アドオンは有効になります。
+インストールすると、アドオンは有効になる。
 
-Preferences の **Add-ons** の一覧に **Silicone Casting** が表示されていれば OK です。
+Preferences の **Add-ons** の一覧に **Silicone Casting** が表示される。
 
-> 💡 **ヒント**: インストール時に権限の説明が表示されます。
-> ファイルアクセスは STL とレシピ JSON の読み書きに、クリップボードは計測値や色の値のコピーに使います。
+> 💡 **ヒント**: インストール時に権限の説明が表示される。
+> ファイルアクセスは STL とレシピ JSON の読み書きに、クリップボードは計測値や色の値のコピーに使う。
 
 ## 🧭 画面の場所
 
-アドオンのボタンは、すべて 3D Viewport のサイドバーにあります。
+アドオンのボタンは、すべて 3D Viewport のサイドバーにある。
 
-1. 3D Viewport の上にマウスを置いて **N** キーを押し、サイドバーを開きます。
-2. サイドバー右端の縦のタブから **Silicone Casting** を選びます。
+1. 3D Viewport の上にマウスを置いて **N** キーを押し、サイドバーを開く。
+2. サイドバー右端の縦のタブから **Silicone Casting** を選ぶ。
 
 ![3D Viewport で N キーを押して開いたサイドバー。赤枠がアドオンのパネル（Measurement、Coloring、Processing）、オレンジ枠が右端の Silicone Casting タブ](docs/images/sidebar-tab.png)
 
-タブの中は 3 つのパネルに分かれています。
+タブの中は、3 つのパネルに分かれている。
 
 | パネル          | 内容                                                                       | ガイド                            |
 | --------------- | -------------------------------------------------------------------------- | --------------------------------- |
@@ -74,19 +74,19 @@ Preferences の **Add-ons** の一覧に **Silicone Casting** が表示されて
 
 ### Processing は見出しを開いて使う
 
-Processing の中の **Solidify / Boolean / Surface Cut / Air Vents / Inherit Shape / Registration Keys** は、見出しだけが並んだ **折りたたみ** です。
+Processing の中の **Solidify / Boolean / Surface Cut / Air Vents / Inherit Shape / Registration Keys** は、見出しだけが並んだ **折りたたみ**。
 
-最初はすべて閉じています。
+最初はすべて閉じている。
 
-使う機能の見出し（左の ▸）をクリックして開くと、設定欄とボタンが表示されます。
+使う機能の見出し（左の ▸）をクリックして開くと、設定欄とボタンが表示される。
 
-**Separate Loose Parts** と **Export STL** は折りたたまれていません。いつでもボタンが見えています。
+**Separate Loose Parts** と **Export STL** は折りたたまれておらず、常にボタンが見えている。
 
 ![Processing パネルの左が最初の状態、右が Solidify の見出しを開いた状態。赤枠が折りたたみの見出し、青枠が常に表示される Separate Loose Parts と Export STL](docs/images/processing-sections.png)
 
 ## 🔁 型づくりの流れ
 
-典型的な手順は次のとおりです。
+典型的な手順は次のとおり。
 
 1. マスターモデルを用意する（閉じたメッシュ）
 2. マスターの体積を測り、シリコーンの配合と着色を決める
@@ -98,7 +98,7 @@ Processing の中の **Solidify / Boolean / Surface Cut / Air Vents / Inherit Sh
 8. **Air Vents** で空気孔を開ける
 9. **Export STL** でパーツごとに STL を書き出す
 
-各手順の詳しい操作と、「どのオブジェクトを選択・アクティブにするか」は [型づくりの流れ](docs/workflow.md) にまとめています。
+各手順の詳しい操作と、どのオブジェクトを選択・アクティブにするかは、[型づくりの流れ](docs/workflow.md) にまとめてある。
 
 ## 📚 ドキュメント
 
