@@ -11,7 +11,7 @@
 ダボは **2 つの別々のオブジェクト** の間に付ける。
 
 - 型は [Separate Loose Parts](surface-cut.md#-separate-loose-parts) で分けておく（Surface Cut だけでは 1 つのオブジェクトのまま）
-- どちらの型も閉じたメッシュにし、組み合わさった位置に置く
+- 両方の型を組み合わさった位置に置く。閉じていない型にも置けるが、置けない位置の検出は閉じた型でだけ働く
 
 | できあがる形                 | その型の指定のしかた               |
 | ---------------------------- | ---------------------------------- |
@@ -69,7 +69,7 @@
 
 置けない位置では、警告が出て何も追加されない。
 
-- `Mold halves must be closed solids`: どちらかの型が閉じたメッシュではない
+- `The key must not consume the mold half`: キーが型を削り切ってしまう
 - `Key must overlap both halves and protrude from the pin half; adjust position or direction`: 両方の型に重なっていない、または凸側から突き出していない
 
 ## 🔧 付けたダボを直す

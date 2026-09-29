@@ -8,6 +8,11 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Registration Keys** を閉じていない（非多様体の）型にも置けるようにした。体積による配置検証は、型と Boolean 結果が閉じている場合だけ行う
+- **Boolean** の Manifold と **Surface Cut** は、対象が閉じていないメッシュなら Exact ソルバーで追加する
+
 ## [0.1.0] - 2026-09-29
 
 ### Added
