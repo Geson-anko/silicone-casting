@@ -151,6 +151,20 @@ def make_cube_mesh(size: float, name: str) -> bpy.types.Mesh:
     return mesh
 
 
+def make_open_cube_mesh(size: float, name: str) -> bpy.types.Mesh:
+    """Create a cube mesh datablock of edge *size* with its -Z face removed."""
+    bm = bmesh.new()
+    try:
+        bmesh.ops.create_cube(bm, size=size)
+        bottom = [face for face in bm.faces if face.normal.z < -0.5]
+        bmesh.ops.delete(bm, geom=bottom, context="FACES_ONLY")
+        mesh = bpy.data.meshes.new(name)
+        bm.to_mesh(mesh)
+    finally:
+        bm.free()
+    return mesh
+
+
 def _count_loose_parts(bm: bmesh.types.BMesh) -> int:
     """Count connected components of *bm* by flood-filling across edges."""
     seen: set[int] = set()

@@ -24,7 +24,7 @@ from _helpers import MeshInvariants, make_cube_mesh
 from conftest import CUBE_SIZE, MakeObject
 
 from silicone_casting.core.solidify import ensure_solidify
-from silicone_casting.core.volume import VolumeSummary, world_volume
+from silicone_casting.core.volume import VolumeSummary, is_watertight, world_volume
 
 #: The cube of ``conftest`` spans -1..1 on every axis, so 8 cubic units.
 EXPECTED_CUBE_VOLUME = CUBE_SIZE**3
@@ -205,6 +205,25 @@ class TestWorldVolumeOfAClosedMesh:
         volume = world_volume(cube_object, depsgraph)
 
         assert volume == pytest.approx(EXPECTED_CUBE_VOLUME, abs=VOLUME_TOL)
+
+
+class TestIsWatertight:
+    def test_a_closed_cube_is_watertight(self, cube_object: bpy.types.Object) -> None:
+        assert is_watertight(cube_object, bpy.context.evaluated_depsgraph_get())
+
+    def test_a_cube_missing_one_face_is_not_watertight(
+        self, open_cube_object: bpy.types.Object
+    ) -> None:
+        assert not is_watertight(
+            open_cube_object, bpy.context.evaluated_depsgraph_get()
+        )
+
+    def test_a_cube_with_a_third_face_on_one_edge_is_not_watertight(
+        self, non_manifold_cube_object: bpy.types.Object
+    ) -> None:
+        assert not is_watertight(
+            non_manifold_cube_object, bpy.context.evaluated_depsgraph_get()
+        )
 
 
 class TestWorldVolumeOfAMeshWithNoDefinedVolume:

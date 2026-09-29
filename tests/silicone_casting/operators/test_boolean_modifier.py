@@ -9,7 +9,7 @@ from typing import cast
 
 import bpy
 import pytest
-from _helpers import make_cube_mesh
+from _helpers import make_cube_mesh, make_open_cube_mesh
 
 import silicone_casting
 from silicone_casting.core.surface_cut import SURFACE_CUT_MODIFIER_NAME
@@ -173,6 +173,34 @@ class TestAddingABooleanModifier:
         assert result == {"FINISHED"}
         assert target.modifiers[0].solver == solver
 
+    @pytest.mark.parametrize("open_object", ("Target", "Operand"))
+    def test_manifold_falls_back_to_exact_for_a_non_manifold_mesh(
+        self,
+        open_object: str,
+        settings: bpy.types.PropertyGroup,
+        add_object: AddObject,
+    ) -> None:
+        target, operand = _set_inputs(settings, add_object)
+        opened = target if open_object == "Target" else operand
+        opened.data = make_open_cube_mesh(CUBE_SIZE, f"{open_object}OpenMesh")
+        settings.boolean_solver = "MANIFOLD"
+
+        result = bpy.ops.silicone_casting.add_boolean(operation="DIFFERENCE")
+
+        assert result == {"FINISHED"}
+        assert target.modifiers[0].solver == "EXACT"
+
+    def test_float_is_kept_for_a_non_manifold_mesh(
+        self, settings: bpy.types.PropertyGroup, add_object: AddObject
+    ) -> None:
+        target, _operand = _set_inputs(settings, add_object)
+        target.data = make_open_cube_mesh(CUBE_SIZE, "TargetOpenMesh")
+        settings.boolean_solver = "FLOAT"
+
+        bpy.ops.silicone_casting.add_boolean(operation="DIFFERENCE")
+
+        assert target.modifiers[0].solver == "FLOAT"
+
     def test_repeating_the_action_adds_another_modifier(
         self, settings: bpy.types.PropertyGroup, add_object: AddObject
     ) -> None:
@@ -227,6 +255,22 @@ class TestAddingASurfaceCut:
         assert cutting_surface.default_value == surface
         assert not even_thickness.default_value
         assert solver.default_value == "Manifold"
+
+    def test_a_non_manifold_target_starts_with_the_exact_solver(
+        self, settings: bpy.types.PropertyGroup, add_object: AddObject
+    ) -> None:
+        target, _surface = _set_inputs(settings, add_object)
+        target.data = make_open_cube_mesh(CUBE_SIZE, "TargetOpenMesh")
+
+        result = bpy.ops.silicone_casting.add_surface_cut()
+
+        assert result == {"FINISHED"}
+        modifier = cast(bpy.types.NodesModifier, target.modifiers[0])
+        assert modifier.node_group is not None
+        interface = modifier.node_group.interface
+        assert interface is not None
+        solver = next(item for item in interface.items_tree if item.name == "Solver")
+        assert solver.default_value == "Exact"
 
     def test_configured_thickness_and_minimum_reach_the_modifier_in_scene_units(
         self, settings: bpy.types.PropertyGroup, add_object: AddObject

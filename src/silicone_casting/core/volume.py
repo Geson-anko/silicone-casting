@@ -113,10 +113,7 @@ def world_volume(obj: bpy.types.Object, depsgraph: bpy.types.Depsgraph) -> float
         # registering it in `bpy.data.meshes` the way `core.solidify` has to,
         # so measuring cannot leave an orphan datablock behind in the .blend.
         bm.from_mesh(evaluated.to_mesh())
-        # Watertight means every edge is shared by exactly two faces,
-        # which rules out boundary edges (fewer than two) and
-        # non-manifold ones (more than two) in a single pass.
-        if any(len(edge.link_faces) != 2 for edge in bm.edges):
+        if not _is_watertight_bmesh(bm):
             return None
         # calc_volume defaults to signed=False, so the shell of a
         # solidified object -- an outer part plus an inward-facing inner
@@ -127,3 +124,30 @@ def world_volume(obj: bpy.types.Object, depsgraph: bpy.types.Depsgraph) -> float
         # to_mesh_clear() is harmless even if to_mesh() never succeeded.
         bm.free()
         evaluated.to_mesh_clear()
+
+
+def is_watertight(obj: bpy.types.Object, depsgraph: bpy.types.Depsgraph) -> bool:
+    """Return whether *obj* is watertight after modifier evaluation.
+
+    This is the same test :func:`world_volume` applies before measuring,
+    so it tells a caller in advance whether a volume will be available.
+
+    Args:
+        obj: Mesh object linked into the view layer.
+        depsgraph: Dependency graph to evaluate against.
+    """
+    evaluated = obj.evaluated_get(depsgraph)
+    bm = bmesh.new()
+    try:
+        bm.from_mesh(evaluated.to_mesh())
+        return _is_watertight_bmesh(bm)
+    finally:
+        bm.free()
+        evaluated.to_mesh_clear()
+
+
+def _is_watertight_bmesh(bm: bmesh.types.BMesh) -> bool:
+    # Watertight means every edge is shared by exactly two faces,
+    # which rules out boundary edges (fewer than two) and
+    # non-manifold ones (more than two) in a single pass.
+    return all(len(edge.link_faces) == 2 for edge in bm.edges)

@@ -16,7 +16,7 @@
 型には 1 つの **Surface Cut** モディファイアとして付く。
 
 - 切断面のオブジェクトは参照されるだけ。後から編集すると切断もその場で更新
-- 作った後も、モディファイアで **Cutting Surface**、**Thickness**、**Even Thickness**（既定オフ）、**Solver**（**Manifold** が既定、**Exact** も可）を変更可能
+- 作った後も、モディファイアで **Cutting Surface**、**Thickness**、**Even Thickness**（既定オフ）、**Solver**（**Manifold** が既定。型が閉じていなければ **Exact**）を変更可能
 
 > ⚠️ **注意**: **Thickness** の既定値は最小値の 0.001 mm で、切断の幅はほぼ 0。
 > すき間が必要なら、作る前か、作った後のモディファイアで設定する。

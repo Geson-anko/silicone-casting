@@ -541,7 +541,9 @@ def _check_boolean_effect(
 
     A union must add some but not all of the key (it protrudes from the
     pin half); a difference must remove some of it (it reaches the
-    socket half).
+    socket half). Volume is only defined for watertight meshes, so when
+    the half is not watertight before or after the Boolean the check is
+    skipped and the Exact Boolean is kept as it is.
     """
     was_visible = modifier.show_viewport
     try:
@@ -549,11 +551,13 @@ def _check_boolean_effect(
         before = world_volume(half, context.evaluated_depsgraph_get())
         key_volume = world_volume(operand, context.evaluated_depsgraph_get())
         modifier.show_viewport = True
-        if before is None or before <= 0 or key_volume is None:
-            raise ValueError("Mold halves must be closed solids")
         after = world_volume(half, context.evaluated_depsgraph_get())
-        if after is None or after <= 0:
-            raise ValueError("The key must leave a closed mold half")
+        if before is None or key_volume is None or after is None:
+            return
+        if before <= 0:
+            raise ValueError("Mold halves must be solids")
+        if after <= 0:
+            raise ValueError("The key must not consume the mold half")
         tolerance = key_volume * _VOLUME_TOLERANCE_RATIO
         is_union = modifier.operation == "UNION"
         change = after - before if is_union else before - after

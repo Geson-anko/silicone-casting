@@ -7,6 +7,7 @@ from bpy.props import EnumProperty
 
 from ..core.surface_cut import MIN_SURFACE_CUT_THICKNESS_MM, create_surface_cut
 from ..core.units import mm_to_units
+from ..core.volume import is_watertight
 from ..properties.settings import BooleanSolver, scene_settings
 from ._operator import OperatorReturn
 
@@ -71,6 +72,12 @@ def _add_boolean_modifier(
     return modifier
 
 
+def _all_watertight(context: bpy.types.Context, *objects: bpy.types.Object) -> bool:
+    """Whether the Manifold solver can process every object as evaluated."""
+    depsgraph = context.evaluated_depsgraph_get()
+    return all(is_watertight(obj, depsgraph) for obj in objects)
+
+
 class SILCAST_OT_add_boolean(bpy.types.Operator):
     """Add one Boolean modifier to the active selected mesh."""
 
@@ -101,11 +108,13 @@ class SILCAST_OT_add_boolean(bpy.types.Operator):
             return {"CANCELLED"}
 
         solver = scene_settings(context).boolean_solver
-        _add_boolean_modifier(inputs, self.operation, solver)
+        fallback = solver == "MANIFOLD" and not _all_watertight(context, *inputs)
+        _add_boolean_modifier(inputs, self.operation, "EXACT" if fallback else solver)
 
-        self.report(
-            {"INFO"}, f"Added {self.operation.title()} Boolean to {inputs.target.name}"
-        )
+        message = f"Added {self.operation.title()} Boolean to {inputs.target.name}"
+        if fallback:
+            message += " (Exact solver: non-manifold mesh)"
+        self.report({"INFO"}, message)
         return {"FINISHED"}
 
 
@@ -133,16 +142,20 @@ class SILCAST_OT_add_surface_cut(bpy.types.Operator):
             return {"CANCELLED"}
 
         target, surface = inputs
+        # The surface is open by design and closed inside the node group, so
+        # only the target decides whether Manifold can run.
+        fallback = not _all_watertight(context, target)
         scale_length = context.scene.unit_settings.scale_length
         create_surface_cut(
             target,
             surface,
             mm_to_units(scene_settings(context).surface_cut_thickness_mm, scale_length),
             minimum_thickness=mm_to_units(MIN_SURFACE_CUT_THICKNESS_MM, scale_length),
+            solver="Exact" if fallback else "Manifold",
         )
 
-        self.report(
-            {"INFO"},
-            f"Added surface cut from {surface.name} to {target.name}",
-        )
+        message = f"Added surface cut from {surface.name} to {target.name}"
+        if fallback:
+            message += " (Exact solver: non-manifold mesh)"
+        self.report({"INFO"}, message)
         return {"FINISHED"}

@@ -17,6 +17,7 @@ from ..core.surface_picking import (
     pick_surface_element,
 )
 from ..core.units import mm_to_units
+from ..core.volume import is_watertight
 from ..properties.settings import scene_settings
 from . import _drawing_navigation
 from ._drawing_session import DrawingSession
@@ -655,11 +656,13 @@ class SILCAST_OT_draw_surface_cut(bpy.types.Operator):
         self._header()
 
     def _finish(self, context: bpy.types.Context) -> OperatorReturn:
+        manifold = is_watertight(self._target, context.evaluated_depsgraph_get())
         create_surface_cut(
             self._target,
             self._session.preview,
             self._thickness,
             minimum_thickness=self._minimum_thickness,
+            solver="Manifold" if manifold else "Exact",
         )
         self._session.preview.name = f"{self._target.name}.Cutting Surface"
         self._cleanup(keep_surface=True)

@@ -5,7 +5,7 @@ from math import pi, sin
 
 import bpy
 import pytest
-from _helpers import MeshData, MeshInvariants, make_cube_mesh
+from _helpers import MeshData, MeshInvariants, make_cube_mesh, make_open_cube_mesh
 from mathutils import Matrix, Vector
 
 import silicone_casting
@@ -235,6 +235,24 @@ def test_a_key_entirely_inside_the_male_is_rejected_without_partial_data(
 
     assert not male.modifiers and not female.modifiers
     assert (set(bpy.data.objects), set(bpy.data.meshes)) == before
+
+
+def test_a_non_manifold_half_keeps_the_key_without_the_volume_check(halves) -> None:
+    male, female = halves
+    male.data = make_open_cube_mesh(20, "Open male mesh")
+    bpy.context.view_layer.update()
+
+    pair = KeyPair.create(
+        bpy.context,
+        KeySettings.from_context(bpy.context),
+        Vector((0, 0, 0)),
+        Vector((0, 0, 1)),
+    )
+
+    assert male.modifiers[0].object == pair.pin
+    assert male.modifiers[0].operation == "UNION"
+    assert male.modifiers[0].solver == "EXACT"
+    assert female.modifiers[0].object == pair.socket
 
 
 def test_placement_requires_distinct_mesh_halves_and_object_mode(halves) -> None:
