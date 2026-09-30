@@ -136,6 +136,7 @@ def test_repeated_placement_retains_two_independent_pairs(halves) -> None:
     assert len(male.modifiers) == len(female.modifiers) == 2
     assert male.modifiers[0].object == first_pin
     assert male.modifiers[1].object != first_pin
+    assert {m.solver for m in (*male.modifiers, *female.modifiers)} == {"MANIFOLD"}
     result = MeshInvariants.from_mesh(_evaluated_mesh(male))
     assert result.is_watertight and result.loose_part_count == 1
     assert result.volume == pytest.approx(

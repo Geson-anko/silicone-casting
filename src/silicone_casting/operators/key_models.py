@@ -9,7 +9,7 @@ import bpy
 from mathutils import Matrix, Vector
 
 from ..core.registration_keys import KeyDimensions, placement_matrix, validate_normal
-from ..core.volume import world_volume
+from ..core.volume import is_watertight, world_volume
 from ..properties.settings import scene_settings
 
 # Custom property keys on the pin; saved in .blend files.
@@ -303,7 +303,7 @@ class KeyPair:
                 operand.parent = half
                 operand.matrix_world = matrix
                 modifier = _add_modifier(
-                    half, operand, "DIFFERENCE" if socket else "UNION"
+                    context, half, operand, "DIFFERENCE" if socket else "UNION"
                 )
                 modifiers.append((half, modifier))
                 context.view_layer.update()
@@ -516,14 +516,25 @@ def _modifier_using(
 
 
 def _add_modifier(
-    half: bpy.types.Object, operand: bpy.types.Object, operation: BooleanOperation
+    context: bpy.types.Context,
+    half: bpy.types.Object,
+    operand: bpy.types.Object,
+    operation: BooleanOperation,
 ) -> bpy.types.BooleanModifier:
+    """Add the key's Boolean, preferring Manifold over a watertight half.
+
+    Exact has produced pin unions that slicers read as a cavity, so it
+    is only the fallback for a half Manifold cannot process. The operand
+    is closed by construction, so only the half is checked, as evaluated
+    before the new modifier.
+    """
+    watertight = is_watertight(half, context.evaluated_depsgraph_get())
     modifier = cast(
         bpy.types.BooleanModifier, half.modifiers.new(_MODIFIER_NAME, "BOOLEAN")
     )
     try:
         modifier.operation = operation
-        modifier.solver = "EXACT"
+        modifier.solver = "MANIFOLD" if watertight else "EXACT"
         modifier.object = operand
     except (ValueError, RuntimeError):
         half.modifiers.remove(modifier)
@@ -543,7 +554,7 @@ def _check_boolean_effect(
     pin half); a difference must remove some of it (it reaches the
     socket half). Volume is only defined for watertight meshes, so when
     the half is not watertight before or after the Boolean the check is
-    skipped and the Exact Boolean is kept as it is.
+    skipped and the Boolean is kept as it is.
     """
     was_visible = modifier.show_viewport
     try:

@@ -63,7 +63,7 @@
 
 > 💡 **ヒント**: クリックで拾うのは **アクティブな型の表面だけ**。もう片方の型越しに分割面を狙える。
 
-ダボは Boolean モディファイア（**Registration Key**、Exact）として付く。凸側は **Union**、凹側は **Difference**。
+ダボは Boolean モディファイア（**Registration Key**、Manifold。閉じていない型では Exact）として付く。凸側は **Union**、凹側は **Difference**。
 
 ダボの形のオブジェクトは非表示で、型の子になっている（型を動かすとついてくる）。
 
