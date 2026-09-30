@@ -10,7 +10,7 @@
 
 ## project
 
-- [プロジェクトの目的](project_purpose.md) — シリコーン造形用の樹脂型を Blender で生成し 3D プリントする
+- [プロジェクトの目的](project_purpose.md) — シリコーン造形用の樹脂型を Blender で生成し 3D プリントする。樹脂型は PLA（FDM）も含み、レジン限定ではない
 - [既存プロトタイプアドオン](project_prototype_addons.md) — repo 外にある mold_cut / mold_split。次フェーズの移植元
 - [format ゲートは untracked を見ない](project_format_gate_skips_untracked.md) — 新規ファイルは commit するまで違反が出ない。ローカル緑・CI 赤の原因
 - [GUI イベントスクリプトの回し方](knowledge_gui_event_scripts.md) — blender-test に含まれず自動終了しない。結果は $TMPDIR のファイルで判定。空気孔 undo の既知失敗
