@@ -8,6 +8,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Registration Keys** で最後に追加したダボの凸側が、スライサーで凹んで見えることがある不具合を修正した。閉じた型には Manifold ソルバーで Boolean を付け、閉じていない型だけ Exact を使う
+
 ## [0.1.1] - 2026-09-29
 
 ### Fixed
