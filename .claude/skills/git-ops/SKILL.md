@@ -11,18 +11,23 @@ ______________________________________________________________________
 
 ## ブランチ
 
-- `main`: 開発の主軸。**直接 commit しない**
+- `main`: 開発ブランチ。**直接 commit しない**
+- `release/x.y`: マイナーバージョンごとのリリースブランチ（例: `release/0.1`）。リリース後も消さずに残し、そのマイナー系のパッチはここから出す。**直接 commit しない**
 - 作業ブランチ: `<種別>/<日付>/<内容>`
   - 種別: `feature` / `fix` / `refactor` / `docs` / `chore`
   - 日付: `YYYYMMDD`
   - 例: `feature/20260814/parting-surface`、`fix/20260814/solidify-sign`
-- 作業ブランチは `main` から分岐する
-- **`main` へのマージはユーザーが判断・実行する**。Claude から自発的に `gh pr merge` は叩かない
+- 作業ブランチは原則 `main` から分岐し、`main` へ PR する
+- **リリース済みバージョンのバグ修正（hotfix）だけは `release/x.y` から分岐し、`release/x.y` へ PR する**。マージ後、修正コミットを `main` から切ったブランチへ `git cherry-pick -x` して `main` へ PR する（手順は [CLAUDE.md](../../../CLAUDE.md) の「リリース」節）
+- **`main` / `release/x.y` へのマージはユーザーが判断・実行する**。Claude から自発的に `gh pr merge` は叩かない
 
 ```bash
 git branch --show-current                       # 今どこにいるか
 git switch -c feature/$(date +%Y%m%d)/<slug> main
+git switch -c fix/$(date +%Y%m%d)/<slug> origin/release/<x.y>   # hotfix
 ```
+
+以降の skill で「`main`」と書いてある箇所は、hotfix では「PR の base（`release/x.y`）」と読み替える。
 
 `main` の上にいることに気付いたら、実装を始める前にブランチを切る。既に `main` で編集してしまっていたら、`git switch -c <branch>` すれば未コミットの変更はそのまま新ブランチに移る。
 
@@ -80,7 +85,7 @@ ______________________________________________________________________
 
 ## やってはいけないこと
 
-- `main` に直接 commit / push する
+- `main` / `release/x.y` に直接 commit / push する（`release/x.y` の新規作成と、リリース手順でのタグ push を除く）
 - `git push --force` / `git push -f`（履歴破壊）。rebase 直後にどうしても必要なら `--force-with-lease` を使い、共有ブランチには使わない
 - `git reset --hard` / `git clean -f` で未コミットの作業を捨てる（`.claude/settings.json` の `permissions.deny` でも禁止している）
 - `git commit --no-verify` / `git push --no-verify` で hook を迂回する

@@ -2,14 +2,14 @@ name: Type Check
 
 on:
   push:
-    branches: [main]
+    branches: [main, "release/**"]
     paths:
       - "src/**/*.py"
       - "pyproject.toml"
       - "justfile"
       - ".github/workflows/type-check.yml"
   pull_request:
-    branches: [main]
+    branches: [main, "release/**"]
     paths:
       - "src/**/*.py"
       - "pyproject.toml"

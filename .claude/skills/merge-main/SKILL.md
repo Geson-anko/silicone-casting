@@ -7,6 +7,8 @@ description: "作業の最後、PR を出す直前に main をリモート最新
 
 作業の最後、PR を出す **直前** に実行する。`origin/main` を作業ブランチへ merge し、conflict を解消してから PR を立てる。これにより PR が最新の base に対して clean に diff する。
 
+hotfix など `release/x.y` を base にする PR では、以下の `main` を `release/x.y` に読み替える（`git fetch origin release/x.y` → `git merge origin/release/x.y`）。`main` は取り込まない。
+
 [/git-ops](../git-ops/SKILL.md) と整合。**`main` への直接 commit / push はしない**。取り込みは作業ブランチ側で行う。
 
 このリポジトリは **rebase ではなく merge** で main を取り込む（merge commit が残ることを許容し、自ブランチの commit hash を書き換えない）。
