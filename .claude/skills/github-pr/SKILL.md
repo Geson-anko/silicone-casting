@@ -35,6 +35,8 @@ ______________________________________________________________________
 
 ## 2. PR を作成する
 
+`--base` は分岐元に合わせる。通常は `main`、hotfix とパッチリリース準備は `release/x.y`（[/git-ops](../git-ops/SKILL.md)）。
+
 ```bash
 gh pr create \
   --base main \

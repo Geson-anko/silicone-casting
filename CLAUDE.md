@@ -208,9 +208,25 @@ LLM コーディングで陥りがちなミスを減らすための行動指針�
 
 配布は GitHub Release に extension zip を添付する方式のみ（自前 extension repository は使わない）。
 
-1. `blender_manifest.toml` の `version` を上げる（バージョンの単一の真実。ここ以外に書かない）
-2. `CHANGELOG.md` の `## [Unreleased]` を `## [x.y.z] - YYYY-MM-DD` の節に移す。**見出し形式を崩さない**（リリース CI がこの節を抽出して Release 本文にする）
-3. `just run` と `just blender-test` を通し、PR にして `main` にマージする
-4. マージ後の `main` に `vx.y.z` タグを打って push する
+`main` は開発ブランチで、リリースはマイナーバージョンごとに残す `release/x.y` ブランチから出す。タグ `vx.y.z` は必ず `release/x.y` 上に打つ。ブランチの切り方は `/git-ops` を参照。
 
-以降は [.github/workflows/release.yml](.github/workflows/release.yml) が、タグと manifest の一致検証 → `extension build` → zip の再 validate → Release 作成まで行う。タグと manifest がずれていると失敗する。
+リリース準備（version と CHANGELOG の確定）の共通手順:
+
+- `blender_manifest.toml` の `version` を上げる（バージョンの単一の真実。ここ以外に書かない）
+- `CHANGELOG.md` の `## [Unreleased]` を `## [x.y.z] - YYYY-MM-DD` の節に移す。**見出し形式を崩さない**（リリース CI がこの節を抽出して Release 本文にする）
+- `just run` と `just blender-test` を通す
+
+### マイナーリリース（x.y.0）
+
+1. `main` から切った `chore/<日付>/release-x.y.0` で準備し、`main` へ PR → マージ
+2. マージ後の `main` から `release/x.y` を作って push する
+3. `release/x.y` に `vx.y.0` タグを打って push する
+
+### パッチリリース（x.y.z、z ≥ 1）
+
+1. `release/x.y` から切った `fix/<日付>/<内容>` で修正し、`release/x.y` へ PR → マージ（CHANGELOG の `## [Unreleased]` にも記載）
+2. `release/x.y` から切った `chore/<日付>/release-x.y.z` で準備し、`release/x.y` へ PR → マージ
+3. `release/x.y` に `vx.y.z` タグを打って push する
+4. `main` から切った `chore/<日付>/backport-x.y.z` に修正コミットを `git cherry-pick -x` し、`main` の CHANGELOG にも `## [x.y.z]` 節を足して `main` へ PR。`main` の `blender_manifest.toml` の `version` は触らない（`main` の version が変わるのはマイナーリリース準備だけ）
+
+タグ push 後は [.github/workflows/release.yml](.github/workflows/release.yml) が、タグと manifest の一致検証 → `extension build` → zip の再 validate → Release 作成まで行う。タグと manifest がずれていると失敗する。
