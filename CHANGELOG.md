@@ -8,6 +8,8 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-01
+
 ### Fixed
 
 - **Registration Keys** で最後に追加したダボの凸側が、スライサーで凹んで見えることがある不具合を修正した。閉じた型には Manifold ソルバーで Boolean を付け、閉じていない型だけ Exact を使う
@@ -96,4 +98,5 @@
 
 [0.1.0]: https://github.com/Geson-anko/silicone-casting/releases/tag/v0.1.0
 [0.1.1]: https://github.com/Geson-anko/silicone-casting/releases/tag/v0.1.1
-[unreleased]: https://github.com/Geson-anko/silicone-casting/compare/v0.1.1...HEAD
+[0.1.2]: https://github.com/Geson-anko/silicone-casting/releases/tag/v0.1.2
+[unreleased]: https://github.com/Geson-anko/silicone-casting/compare/v0.1.2...HEAD
